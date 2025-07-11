@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台灣選舉情勢分析地圖工具</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet.js for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- Chart.js for Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="flex flex-col md:flex-row h-screen w-screen overflow-hidden">
+
+        <!-- 左側地圖區塊 -->
+        <div id="map-container" class="w-full md:w-2/3 h-1/2 md:h-full relative transition-all duration-500 ease-in-out">
+            <div id="map"></div>
+            <!-- 圖例 -->
+            <div class="absolute bottom-4 left-4 bg-white bg-opacity-80 p-3 rounded-lg shadow-lg z-20">
+                <h3 class="font-bold text-sm mb-2">村里政黨傾向</h3>
+                <div class="flex items-center mb-1"><div class="w-4 h-4 rounded-full mr-2" style="background-color: #3b82f6;"></div><span class="text-xs">中國國民黨領先</span></div>
+                <div class="flex items-center mb-1"><div class="w-4 h-4 rounded-full mr-2" style="background-color: #16a34a;"></div><span class="text-xs">民主進步黨領先</span></div>
+                <div class="flex items-center mb-1"><div class="w-4 h-4 rounded-full mr-2" style="background-color: rgba(0, 0, 0, 0.4);"></div><span class="text-xs">其他政黨/無黨籍領先</span></div>
+                <div class="flex items-center"><div class="w-4 h-4 rounded-full mr-2" style="background-color: #ef4444;"></div><span class="text-xs">激戰區 (催票率差距 &lt; 5%)</span></div>
+            </div>
+        </div>
+
+        <!-- 右側資訊區塊 -->
+        <div id="info-container" class="w-full md:w-1/3 h-1/2 md:h-full flex flex-col bg-white shadow-lg overflow-hidden transition-all duration-500 ease-in-out">
+            
+            <!-- 行動裝置切換鈕 -->
+            <button id="info-toggle" class="md:hidden flex-shrink-0 bg-gray-100 p-2 text-center cursor-pointer border-b border-t border-gray-200 flex items-center justify-center space-x-2 focus:outline-none">
+                <span id="toggle-text" class="text-sm font-medium text-gray-700">收合資訊面板</span>
+                <svg id="toggle-icon-collapse" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+                <svg id="toggle-icon-expand" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                </svg>
+            </button>
+
+            <!-- 可收合內容 -->
+            <div id="collapsible-content" class="flex-grow flex flex-col overflow-y-auto">
+                <!-- 步驟導覽列 -->
+                <nav class="flex-shrink-0 p-3 border-b border-gray-200 bg-gray-50">
+                    <ol class="stepper-nav">
+                        <li id="stepper-1" class="stepper-item active">
+                            <span class="stepper-icon">1</span>
+                            篩選與設定
+                        </li>
+                        <li class="stepper-separator">&gt;</li>
+                        <li id="stepper-2" class="stepper-item disabled">
+                            <span class="stepper-icon">2</span>
+                            選區總覽
+                        </li>
+                        <li class="stepper-separator">&gt;</li>
+                        <li id="stepper-3" class="stepper-item disabled">
+                            <span class="stepper-icon">3</span>
+                            村里詳情
+                        </li>
+                    </ol>
+                </nav>
+
+                <!-- 分頁內容 -->
+                <div class="flex-grow overflow-y-auto">
+                    <!-- Tab 1: 篩選與設定 -->
+                    <div id="tab-content-1" class="tab-content p-4">
+                        <div class="space-y-4">
+                            <div>
+                                <label for="year-selector" class="block text-sm font-medium text-gray-700 mb-1">1. 選擇年份與選舉</label>
+                                <select id="year-selector" name="year-selector" class="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                    <option value="2024_legislator" selected>2024 立委選舉</option>
+                                    <option value="2022_mayor">2022 縣市長選舉</option>
+                                    <option value="2020_legislator">2020 立委選舉</option>
+                                    <option value="2018_mayor">2018 縣市長選舉</option>
+                                    <option value="2016_legislator">2016 立委選舉</option>
+                                    <option value="2014_mayor">2014 縣市長選舉</option>
+                                    <option value="2012_legislator">2012 立委選舉</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="search-input" class="block text-sm font-medium text-gray-700 mb-1">2. 搜尋或篩選</label>
+                                <div class="flex space-x-2">
+                                    <input type="text" id="search-input" placeholder="輸入候選人或地區..." class="block w-full pl-3 pr-2 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                    <button id="clear-search-btn" class="p-2 border border-gray-300 rounded-md bg-white hover:bg-gray-100 text-gray-500" title="清除搜尋">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <select id="district-selector" name="district-selector" class="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                    <!-- 選項將由 JavaScript 動態生成 -->
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 pt-4 border-t border-gray-200">
+                             <h3 class="text-xl leading-6 font-medium text-gray-900">歡迎使用罷免案選情分析工具</h3>
+                             <div class="mt-4 text-left text-sm text-gray-700 space-y-4">
+                                 <p>本地圖工具旨在協助罷免志工，透過視覺化分析各選區近年選舉資料，以利規劃溝通策略與催票範圍。</p>
+                                 
+                                 <div class="space-y-3">
+                                     <p class="font-bold">關鍵指標說明：</p>
+                                     <ul class="list-disc list-inside space-y-3">
+                                         <li>
+                                             <span class="font-semibold">催票率</span>：可以想像成是候選人在「<span class="font-semibold">整個村里所有具備投票資格的選民中</span>」獲得了多少支持。
+                                             <br>
+                                             <span class="text-xs text-gray-600">計算方式：<code>候選人得票數 ÷ 總選舉人數</code>。這個指標的好處是，不管當天投票率高低，我們都能看出候選人在這個地區的「基本盤」實力。關於催票率的進一步探討，可參考<a href="https://whogovernstw.org/2020/01/17/kohuayap2/" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">此篇文章</a>。</span>
+                                         </li>
+                                         <li>
+                                             <span class="font-semibold">未投票率</span>：代表這個村里「<span class="font-semibold">有多少比例的合格選民，沒有出來投票</span>」。
+                                             <br>
+                                             <span class="text-xs text-gray-600">計算方式：<code>(總選舉人數 - 總投票數) ÷ 總選舉人數</code>。這個數字可以幫助我們了解此地區還有多少潛在的動員空間。</span>
+                                         </li>
+                                     </ul>
+                                 </div>
+             
+                                 <p>
+                                     地圖顏色代表該村里在該次選舉中的政黨傾向：
+                                 </p>
+                                 <ul class="list-disc list-inside space-y-2">
+                                     <li><span class="pb-0.5 border-b-2 border-blue-400">標示藍色區域</span>：代表該村里的投票結果由中國國民黨候選人，取得 5% 以上的催票率優勢。</li>
+                                     <li><span class="pb-0.5 border-b-2 border-green-500">標示綠色區域</span>：代表民主進步黨候選人在該次選舉中，取得 5% 以上的催票率優勢。</li>
+                                     <li><span class="pb-0.5 border-b-2 border-gray-500">標示黑色區域</span>：代表其他政黨或無黨籍候選人取得領先。</li>
+                                     <li><span class="pb-0.5 border-b-2 border-red-500">標示紅色區域</span>：代表主要競爭者之間，催票率差距在 5% 以內，屬於激戰區。</li>
+                                 </ul>
+                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: 選區總覽 -->
+                    <div id="tab-content-2" class="tab-content hidden">
+                        <!-- 內容將由 JavaScript 動態生成 -->
+                    </div>
+
+                    <!-- Tab 3: 村里詳情 -->
+                    <div id="tab-content-3" class="tab-content hidden">
+                        <!-- 內容將由 JavaScript 動態生成 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    
+    <!-- Custom Script -->
+    <script src="script.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,106 @@
+/* 使用 Noto Sans TC 作為主要字體 */
+body {
+    font-family: 'Inter', 'Noto Sans TC', sans-serif;
+}
+
+/* Leaflet 地圖容器的高度 */
+#map {
+    height: 100%;
+    width: 100%;
+    z-index: 10;
+}
+
+/* 讓滾動條更好看 */
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* 步驟導覽列樣式 */
+.stepper-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.875rem; /* 14px */
+    line-height: 1.25rem; /* 20px */
+}
+
+.stepper-item {
+    display: flex;
+    align-items: center;
+    font-weight: 500; /* medium */
+}
+/* 數字和文字之間的間距 */
+.stepper-item .stepper-icon {
+    margin-right: 0.5rem; /* space-x-2 */
+}
+
+
+.stepper-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem; /* w-6 */
+    height: 1.5rem; /* h-6 */
+    border-radius: 9999px; /* rounded-full */
+    font-weight: 700; /* bold */
+}
+
+.stepper-separator {
+    color: #9ca3af; /* gray-400 */
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+}
+
+/* 步驟：停用狀態 (預設) */
+.stepper-item.disabled {
+    color: #9ca3af; /* gray-400 */
+}
+.stepper-item.disabled .stepper-icon {
+    background-color: #e5e7eb; /* gray-200 */
+    color: #6b7280; /* gray-500 */
+}
+
+/* 步驟：已完成狀態 (可點擊返回) */
+.stepper-item.completed {
+    color: #4f46e5; /* indigo-600 */
+    cursor: pointer;
+}
+.stepper-item.completed:hover {
+    color: #3730a3; /* indigo-800 */
+}
+.stepper-item.completed .stepper-icon {
+    background-color: #ffffff; /* bg-white */
+    color: #4f46e5; /* text-indigo-600 */
+    border: 2px solid #6366f1; /* border-indigo-500 */
+}
+
+/* 步驟：目前啟用狀態 */
+.stepper-item.active {
+    color: #4338ca; /* indigo-700 */
+}
+.stepper-item.active .stepper-icon {
+    background-color: #6366f1; /* bg-indigo-500 */
+    color: #ffffff; /* text-white */
+}
+
+
+/* 分頁內容 */
+.tab-content {
+    width: 100%;
+    height: 100%;
+}
+
+/* 預設隱藏，由 JS 控制顯示 */
+.hidden {
+    display: none;
+}
