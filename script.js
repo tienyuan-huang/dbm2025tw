@@ -1,15 +1,14 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 25.1.0
- * @date 2025-07-12
- * * 此版本修復了選擇年份後，介面卡在「資料載入中」的錯誤。
+ * @version 26.3.0
+ * @date 2025-07-11
+ * * 此版本根據最終需求，更新了目標罷免選區的最終列表。
  * 主要改進：
- * 1.  **修復讀取 Bug**：移除先前會導致控制項消失的 `innerHTML` 操作。
- * 2.  **改善讀取反饋**：在讀取新年份的資料時，改為暫時禁用篩選器，並在完成後自動重新啟用，避免介面卡死。
+ * 1.  **最終選區列表**：更新 RECALL_DISTRICTS 陣列，以精確符合此次罷免案的目標範圍。
  */
 
-console.log('Running script.js version 25.1.0 with loading bug fix.');
+console.log('Running script.js version 26.3.0 with final recall district list.');
 
 // --- 全域變數與設定 ---
 
@@ -18,7 +17,7 @@ let geoJsonLayer, annotationLayer;
 // DOM 元素引用
 let yearSelector, districtSelector, searchInput, clearSearchBtn;
 let infoToggle, infoContainer, mapContainer, collapsibleContent, toggleText, toggleIconCollapse, toggleIconExpand;
-let stepperItems = {}; // 改為 stepper
+let stepperItems = {};
 let tabContents = {};
 
 // 圖表實例
@@ -37,16 +36,21 @@ let winners = {};
 let voteDataCache = {};
 let annotations = {};
 
+// FINAL: Updated the recall district list to the final version provided by the user.
 const RECALL_DISTRICTS = [
-    '臺東縣第01選區', '臺北市第08選區', '臺北市第07選區', '臺北市第06選區',
-    '臺北市第04選區', '臺北市第03選區', '臺中市第08選區', '臺中市第06選區',
-    '臺中市第05選區', '臺中市第04選區', '臺中市第03選區', '臺中市第02選區',
-    '彰化縣第03選區', '新竹縣第02選區', '新竹縣第01選區', '新竹市第01選區',
-    '新北市第09選區', '新北市第08選區', '新北市第07選區', '新北市第12選区',
-    '新北市第11選區', '新北市第01選區', '雲林縣第01選區', '基隆市第01選區',
-    '桃園市第06選區', '桃園市第05選區', '桃園市第04選區', '桃園市第03選區',
-    '桃園市第02選區', '桃園市第01選區', '苗栗縣第02選區', '苗栗縣第01選區',
-    '南投縣第02選區', '南投縣第01選區', '花蓮縣第01選區'
+    '臺東縣第01選區', 
+    '臺北市第08選區', '臺北市第07選區', '臺北市第06選區', '臺北市第04選區', '臺北市第03選區', 
+    '臺中市第08選區', '臺中市第06選區', '臺中市第05選區', '臺中市第04選區', '臺中市第03選區', '臺中市第02選區', 
+    '彰化縣第03選區', 
+    '新竹縣第02選區', '新竹縣第01選區', 
+    '新竹市第01選區', 
+    '新北市第12選區', '新北市第11選區', '新北市第09選區', '新北市第08選區', '新北市第07選區', '新北市第01選區', 
+    '雲林縣第01選區', 
+    '基隆市第01選區', 
+    '桃園市第06選區', '桃園市第05選區', '桃園市第04選區', '桃園市第03選區', '桃園市第02選區', '桃園市第01選區', 
+    '苗栗縣第02選區', '苗栗縣第01選區', 
+    '南投縣第02選區', '南投縣第01選區', 
+    '花蓮縣第01選區'
 ];
 
 const dataSources = {
@@ -58,7 +62,7 @@ const dataSources = {
     '2014_mayor':      { type: 'mayor',      path: 'data/2014/mayor_votes.csv',      name: '2014 縣市長選舉' },
     '2012_legislator': { type: 'legislator', path: 'data/2012/regional_legislator_votes.csv', name: '2012 立委選舉' },
 };
-const GEOJSON_PATH = 'data/village.geojson';
+const TOPOJSON_PATH = 'data/village.json';
 
 const KMT_PARTY_NAME = '中國國民黨';
 const DPP_PARTY_NAME = '民主進步黨';
@@ -149,7 +153,6 @@ function resetToStep(stepIndex) {
     if (stepIndex === 1) {
         clearMapAndTabs();
     } else if (stepIndex === 2) {
-        // 清除村里詳情，但保留選區總覽和地圖
         tabContents[3].innerHTML = '';
         updateStepperUI(2);
     }
@@ -207,23 +210,24 @@ async function loadAndDisplayYear(yearKey, isInitialLoad = false) {
     if (!source) return;
     currentElectionType = source.type;
     
-    // FIX: Disable controls to provide feedback during load.
     yearSelector.disabled = true;
     districtSelector.disabled = true;
     searchInput.disabled = true;
     clearSearchBtn.disabled = true;
 
-    const [geoData, voteDataRows] = await Promise.all([
-        currentGeoData || fetch(GEOJSON_PATH).then(res => res.json()),
+    const [topoData, voteDataRows] = await Promise.all([
+        currentGeoData || fetch(TOPOJSON_PATH).then(res => res.json()),
         getVoteData(yearKey)
     ]);
-    currentGeoData = geoData;
+    
+    if (!currentGeoData) {
+        currentGeoData = topojson.feature(topoData, topoData.objects.village);
+    }
 
     processVoteData(voteDataRows);
     populateDistrictFilter();
     clearMapAndTabs();
 
-    // Re-enable controls after load is complete
     yearSelector.disabled = false;
     districtSelector.disabled = false;
     searchInput.disabled = false;
@@ -656,7 +660,7 @@ function exportToKML() {
             <Point><coordinates>${a.lng},${a.lat},0</coordinates></Point>
         </Placemark>
     `).join('');
-    downloadFile(`<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>我的地圖標註</name>${placemarks}</Document></kml>`, 'annotations.kml', 'application/vnd.google-earth.kml+xml');
+    downloadFile(`<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>我的地圖標註</name>${placemarks}</Document></kml>`, 'application/vnd.google-earth.kml+xml');
 }
 
 // --- 行動裝置 UI ---
