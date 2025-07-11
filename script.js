@@ -1,7 +1,7 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 26.3.2
+ * @version 26.3.3
  * @date 2025-07-11
  * 主要改進：
  * 1.  **資訊面板文字修正**：將「該村里當選人」改為「該村里第一高票」，以更精確描述村里層級的最高得票者。
@@ -10,9 +10,10 @@
  * 4.  **資料處理優化**：
  * - 修正 `processVoteData` 函數，確保正確匯總每個選區的選舉人數和總投票數。
  * - 調整 `loadAllWinners` 函數，在載入時同時收集所有村里的歷史政黨得票數據，以便預先計算搖擺次數。
+ * 5.  **折線圖功能修復**：修正 `renderVillageDetails` 函數，確保在渲染歷史趨勢圖前，先呼叫 `processHistoricalData` 函數將原始數據轉換為 Chart.js 所需的格式，解決了折線圖無法顯示的問題。
  */
 
-console.log('Running script.js version 26.3.2 with enhanced village details, swing village visualization, and chart background fix.');
+console.log('Running script.js version 26.3.3 with line chart fix.');
 
 // --- 全域變數與設定 ---
 
@@ -661,18 +662,22 @@ async function renderVillageDetails(village) {
         options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false }, title: { display: true, text: '此村里各候選人得票數' } } }
     });
 
-    // 這裡的 historicalData 不再需要重新 fetch，因為 allVillageHistoricalPartyPercentages 已經包含了
-    const historicalData = allVillageHistoricalPartyPercentages[village.geo_key];
-    renderHistoricalChart(historicalData);
+    // --- FIX START: 修復折線圖 ---
+    // 原始程式碼直接傳遞了未經處理的數據。
+    // 現在，我們先呼叫 processHistoricalData 將原始數據轉換為 Chart.js 需要的格式。
+    const historicalChartData = processHistoricalData(village.geo_key);
+    // 然後將格式化後的數據傳遞給渲染函數。
+    renderHistoricalChart(historicalChartData);
+    // --- FIX END ---
 }
 
 /**
- * 獲取並處理單一村里的歷史數據，用於繪製折線圖。
- * 注意：此函數現在從預載入的 allVillageHistoricalPartyPercentages 中獲取數據，而不是重新解析 CSV。
+ * 處理單一村里的歷史數據，用於繪製折線圖。
+ * 注意：此函數現在從預載入的 allVillageHistoricalPartyPercentages 中獲取數據。
  * @param {string} geoKey - 村里的地理鍵。
  * @returns {Object|null} 歷史數據的 Chart.js 格式，或 null。
  */
-async function fetchAndProcessHistoricalData(geoKey) {
+function processHistoricalData(geoKey) { // Renamed from fetchAndProcessHistoricalData and removed async
     const historicalRawData = allVillageHistoricalPartyPercentages[geoKey];
     if (!historicalRawData || Object.keys(historicalRawData).length === 0) {
         return null;
@@ -757,7 +762,8 @@ function calculateAttitudeReversals(historicalPartyPercentagesForOneVillage) {
 function renderHistoricalChart(data) {
     const container = document.getElementById('historical-chart-container');
     if (!container) return;
-    if (!data) {
+    // 檢查傳入的 data 是否為 null 或沒有 dataset
+    if (!data || !data.datasets) {
         container.innerHTML = '<p class="text-center text-gray-500 pt-12">此村里沒有足夠的歷史資料可供分析。</p>';
         return;
     }
