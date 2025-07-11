@@ -1,19 +1,18 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 26.3.1
+ * @version 26.3.2
  * @date 2025-07-11
  * 主要改進：
- * 1.  **資訊面板功能擴展**：
- * - 點擊村里時，顯示該村里的當選人、第二高票候選人的得票數及催票率。
- * - 顯示該村里的未投票率。
- * - 顯示該村里的選舉人數量、以及該村里選舉人數量占據整個選區的比例。
- * - 在折線圖的分析後，顯示該村里反轉態度的次數，以描述這個地方的搖擺程度。
- * 2.  **資料處理優化**：
+ * 1.  **資訊面板文字修正**：將「該村里當選人」改為「該村里第一高票」，以更精確描述村里層級的最高得票者。
+ * 2.  **搖擺村里視覺化**：預先計算所有村里的「反轉態度次數」，並在地圖上為搖擺次數大於零的村里添加黃色邊框。
+ * 3.  **折線圖背景優化**：固定歷史趨勢折線圖的背景為亮灰色，提升暗色模式下的可讀性。
+ * 4.  **資料處理優化**：
  * - 修正 `processVoteData` 函數，確保正確匯總每個選區的選舉人數和總投票數。
+ * - 調整 `loadAllWinners` 函數，在載入時同時收集所有村里的歷史政黨得票數據，以便預先計算搖擺次數。
  */
 
-console.log('Running script.js version 26.3.1 with enhanced village details and data processing.');
+console.log('Running script.js version 26.3.2 with enhanced village details, swing village visualization, and chart background fix.');
 
 // --- 全域變數與設定 ---
 
@@ -38,8 +37,13 @@ let geoKeyToDistrictMap = {};
 let currentSelectedDistrict = 'none';
 let currentElectionType = 'legislator';
 let winners = {};
-let voteDataCache = {};
+let voteDataCache = {}; // 儲存各年份的原始投票資料
 let annotations = {};
+// 新增：儲存所有村里歷年政黨得票百分比，用於計算搖擺次數
+let allVillageHistoricalPartyPercentages = {};
+// 新增：儲存所有村里的搖擺次數
+let villageReversalCounts = {};
+
 
 // FINAL: Updated the recall district list to the final version provided by the user.
 const RECALL_DISTRICTS = [
@@ -79,7 +83,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     initializeMap();
     setupEventListeners();
 
-    await loadAllWinners();
+    await loadAllWinners(); // 此函數現在也會預處理歷史數據
+    calculateAllVillageReversalCounts(); // 在所有歷史數據載入後計算搖擺次數
     await loadAndDisplayYear(yearSelector.value, true);
 });
 
@@ -186,28 +191,94 @@ async function getVoteData(yearKey) {
     }
 }
 
+/**
+ * 預先載入所有選舉的當選人資料，並同時彙整所有村里的歷史投票數據。
+ */
 async function loadAllWinners() {
-    console.log('正在預先載入所有選舉的當選人資料...');
+    console.log('正在預先載入所有選舉的當選人資料及歷史投票數據...');
     for (const key in dataSources) {
         const source = dataSources[key];
-        const voteDataRows = await getVoteData(key);
+        const voteDataRows = await getVoteData(key); // 獲取並緩存該年份的投票數據
         const tempDistrictResults = {};
         const districtIdentifier = source.type === 'legislator' ? 'electoral_district_name' : 'county_name';
+        const yearLabel = key.split('_')[0]; // 例如 '2024'
+
         voteDataRows.forEach(row => {
             const districtName = row[districtIdentifier];
             if (!districtName) return;
+
+            // 處理當選人資訊
             if (!tempDistrictResults[districtName]) tempDistrictResults[districtName] = { candidates: {} };
             const cand = tempDistrictResults[districtName].candidates[row.candidate_name] || { votes: 0, party: row.party_name };
             cand.votes += row.votes || 0;
             tempDistrictResults[districtName].candidates[row.candidate_name] = cand;
+
+            // 處理所有村里的歷史政黨得票數據
+            const { geo_key, party_name, votes, electorate, total_votes } = row;
+            if (!geo_key || electorate === undefined || electorate === null) return; // 確保有 geo_key 和選舉人數
+
+            if (!allVillageHistoricalPartyPercentages[geo_key]) {
+                allVillageHistoricalPartyPercentages[geo_key] = {};
+            }
+            if (!allVillageHistoricalPartyPercentages[geo_key][yearLabel]) {
+                allVillageHistoricalPartyPercentages[geo_key][yearLabel] = {
+                    KMT: 0,
+                    DPP: 0,
+                    Other: 0,
+                    electorate: 0,
+                    total_votes: 0,
+                    // 為了計算搖擺次數，我們需要知道每個政黨的實際得票數
+                    candidateVotes: {} // 儲存每個候選人的得票，用於判斷主要政黨
+                };
+            }
+
+            const villageYearData = allVillageHistoricalPartyPercentages[geo_key][yearLabel];
+
+            // 累加政黨得票
+            if (party_name === KMT_PARTY_NAME) {
+                villageYearData.KMT += votes || 0;
+            } else if (party_name === DPP_PARTY_NAME) {
+                villageYearData.DPP += votes || 0;
+            } else {
+                villageYearData.Other += votes || 0;
+            }
+
+            // 累加候選人得票 (用於判斷主要政黨)
+            if (!villageYearData.candidateVotes[party_name]) {
+                villageYearData.candidateVotes[party_name] = 0;
+            }
+            villageYearData.candidateVotes[party_name] += votes || 0;
+
+            // 確保只記錄一次村里的選舉人數和總投票數
+            // 這裡假設同一 geo_key 在同一年份的 electorate 和 total_votes 是相同的
+            if (villageYearData.electorate === 0 && electorate > 0) { // 只在第一次遇到有效值時設定
+                villageYearData.electorate = electorate;
+            }
+            if (villageYearData.total_votes === 0 && total_votes > 0) { // 只在第一次遇到有效值時設定
+                villageYearData.total_votes = total_votes;
+            }
         });
+
         winners[key] = {};
         for (const districtName in tempDistrictResults) {
             const sorted = Object.entries(tempDistrictResults[districtName].candidates).sort((a, b) => b[1].votes - a[1].votes);
             if (sorted.length > 0) winners[key][districtName] = sorted[0][0];
         }
     }
-    console.log('所有當選人資料載入完畢。');
+    console.log('所有當選人資料及歷史投票數據載入完畢。');
+}
+
+/**
+ * 計算所有村里的搖擺次數並儲存。
+ */
+function calculateAllVillageReversalCounts() {
+    console.log('正在計算所有村里的搖擺次數...');
+    for (const geoKey in allVillageHistoricalPartyPercentages) {
+        const historicalDataForOneVillage = allVillageHistoricalPartyPercentages[geoKey];
+        const reversalCount = calculateAttitudeReversals(historicalDataForOneVillage);
+        villageReversalCounts[geoKey] = reversalCount;
+    }
+    console.log('所有村里的搖擺次數計算完畢。');
 }
 
 async function loadAndDisplayYear(yearKey, isInitialLoad = false) {
@@ -229,9 +300,10 @@ async function loadAndDisplayYear(yearKey, isInitialLoad = false) {
         currentGeoData = topojson.feature(topoData, topoData.objects.village);
     }
 
-    processVoteData(voteDataRows);
+    processVoteData(voteDataRows); // 處理當前年份的投票數據
     populateDistrictFilter();
-    clearMapAndTabs();
+    clearMapAndTabs(); // 清除地圖和面板，然後重新渲染
+    renderMapLayers(); // 重新渲染地圖層，此時會包含搖擺村里的邊框
 
     yearSelector.disabled = false;
     districtSelector.disabled = false;
@@ -250,7 +322,7 @@ function processVoteData(voteData) {
     geoKeyToDistrictMap = {};
     const districtIdentifier = currentElectionType === 'legislator' ? 'electoral_district_name' : 'county_name';
 
-    // 第一遍遍歷：彙總選區層級的候選人得票、選舉人數和總投票數
+    // 第一遍遍歷：彙總選區層級的候選人得票
     voteData.forEach(row => {
         const districtName = row[districtIdentifier];
         if (!districtName) return;
@@ -260,20 +332,14 @@ function processVoteData(voteData) {
         }
         const d = districtResults[districtName];
 
-        // 彙總候選人得票
         const cand = d.candidates[row.candidate_name] || { votes: 0, party: row.party_name };
         cand.votes += row.votes || 0;
         d.candidates[row.candidate_name] = cand;
-
-        // 彙總選區的選舉人數和總投票數 (確保只加一次，或者從村里層級彙總)
-        // 這裡假設每個村里的 row.electorate 和 row.total_votes 是該村里的數據
-        // 我們需要確保選區的 electorate 和 total_votes 是所有村里加總的
-        // 為了避免重複計算，我們可以在第二遍遍歷時，從 villageResults 中加總
         d.townships.add(row.township_name);
     });
 
-    // 第二遍遍歷：處理村里層級的資料，並彙總選區的總選舉人數和總投票數
-    const districtElectorateSum = {}; // 用於暫存每個選區的總選舉人數和總投票數
+    // 第二遍遍歷：處理村里層級的資料，並從中彙總選區的總選舉人數和總投票數
+    const districtElectorateTemp = {}; // 用於暫存每個選區的總選舉人數和總投票數，避免重複加總
     voteData.forEach(row => {
         const { geo_key, county_name, township_name, village_name, electorate, total_votes } = row;
         const districtName = row[districtIdentifier];
@@ -286,34 +352,35 @@ function processVoteData(voteData) {
                 districtName: districtName,
                 electorate: electorate || 0, // 村里選舉人數
                 total_votes: total_votes || 0, // 村里總投票數
-                candidates: []
+                candidates: [],
+                reversalCount: villageReversalCounts[geo_key] || 0 // 從預計算結果中獲取搖擺次數
             };
         }
         villageResults[geo_key].candidates.push({ name: row.candidate_name, party: row.party_name, votes: row.votes || 0 });
         geoKeyToDistrictMap[geo_key] = districtName;
 
         // 彙總選區的總選舉人數和總投票數
-        if (!districtElectorateSum[districtName]) {
-            districtElectorateSum[districtName] = { electorate: 0, total_votes: 0 };
+        // 確保每個村里的 electorate 和 total_votes 只被加總一次到其所屬選區
+        if (!districtElectorateTemp[districtName]) {
+            districtElectorateTemp[districtName] = { electorate: 0, total_votes: 0, processedVillages: new Set() };
         }
-        // 這裡需要注意，如果 CSV 中每個候選人行都有 electorate/total_votes，會重複加總
-        // 應該只加總一次每個村里的 electorate/total_votes 到其所屬選區
-        // 為了避免重複，我們可以在處理完所有 villageResults 後，再從 villageResults 中加總到 districtResults
+        if (!districtElectorateTemp[districtName].processedVillages.has(geo_key)) {
+            districtElectorateTemp[districtName].electorate += (electorate || 0);
+            districtElectorateTemp[districtName].total_votes += (total_votes || 0);
+            districtElectorateTemp[districtName].processedVillages.add(geo_key);
+        }
     });
+
+    // 將彙總後的選區選舉人數和總投票數賦值給 districtResults
+    for (const dName in districtElectorateTemp) {
+        if (districtResults[dName]) {
+            districtResults[dName].electorate = districtElectorateTemp[dName].electorate;
+            districtResults[dName].total_votes = districtElectorateTemp[dName].total_votes;
+        }
+    }
 
     // 確保每個村里的候選人按得票數排序
     Object.values(villageResults).forEach(v => v.candidates.sort((a, b) => b.votes - a.votes));
-
-    // 第三遍遍歷：從 villageResults 中加總每個選區的總選舉人數和總投票數
-    // 這樣可以避免因 CSV 格式導致的重複加總問題
-    for (const geoKey in villageResults) {
-        const village = villageResults[geoKey];
-        const districtName = village.districtName;
-        if (districtResults[districtName]) {
-            districtResults[districtName].electorate += village.electorate;
-            districtResults[districtName].total_votes += village.total_votes;
-        }
-    }
 
     // 為選區結果添加可搜尋字串
     for(const district of Object.values(districtResults)) {
@@ -384,7 +451,7 @@ function handleDistrictSelection() {
         return;
     }
     currentSelectedDistrict = selected;
-    renderMapLayers();
+    renderMapLayers(); // 重新渲染地圖層
     renderDistrictOverview(selected);
     switchTab(2);
 }
@@ -401,10 +468,26 @@ function renderMapLayers() {
             }
             return districtName === currentSelectedDistrict;
         },
-        style: feature => ({
-            fillColor: getColor(villageResults[feature.properties.VILLCODE]),
-            weight: 0.5, opacity: 1, color: 'white', fillOpacity: 0.7
-        }),
+        style: feature => {
+            const village = villageResults[feature.properties.VILLCODE];
+            let fillColor = getColor(village);
+            let borderColor = 'white'; // 預設邊框顏色
+            let borderWidth = 0.5; // 預設邊框寬度
+
+            // 如果村里有搖擺次數，設定黃色邊框
+            if (village && village.reversalCount > 4) {
+                borderColor = '#FFFF00'; // 黃色
+                borderWidth = 3;
+            }
+
+            return {
+                fillColor: fillColor,
+                weight: borderWidth,
+                opacity: 1,
+                color: borderColor,
+                fillOpacity: 0.7
+            };
+        },
         onEachFeature: (feature, layer) => {
             const village = villageResults[feature.properties.VILLCODE];
             if (village) {
@@ -489,7 +572,7 @@ function renderDistrictOverview(districtName) {
  * @param {Object} village - 包含村里詳細資料的物件。
  */
 async function renderVillageDetails(village) {
-    const { fullName, districtName, electorate, total_votes, candidates } = village;
+    const { fullName, districtName, electorate, total_votes, candidates, reversalCount } = village;
     const nonVoterRate = electorate > 0 ? ((electorate - total_votes) / electorate * 100).toFixed(2) : 0;
     const turnoutRate = electorate > 0 ? (total_votes / electorate * 100).toFixed(2) : 0;
     const existingAnnotation = annotations[village.geo_key]?.note || '';
@@ -498,10 +581,10 @@ async function renderVillageDetails(village) {
     const districtTotalElectorate = districtResults[districtName]?.electorate || 0;
     const villageElectorateProportion = districtTotalElectorate > 0 ? (electorate / districtTotalElectorate * 100).toFixed(2) : 0;
 
-    // 取得當選人及第二高票候選人資訊
-    const winner = candidates[0];
-    const runnerUp = candidates[1] || { name: '無', votes: 0, party: 'N/A' };
-    const winnerCallRate = electorate > 0 ? (winner.votes / electorate * 100).toFixed(2) : 0;
+    // 取得第一高票及第二高票候選人資訊
+    const firstPlace = candidates[0];
+    const secondPlace = candidates[1] || { name: '無', votes: 0, party: 'N/A' };
+    const firstPlaceCallRate = electorate > 0 ? (firstPlace.votes / electorate * 100).toFixed(2) : 0;
 
     const html = `
         <div class="p-4">
@@ -517,17 +600,17 @@ async function renderVillageDetails(village) {
             </div>
 
             <div class="bg-blue-50 border-l-4 border-blue-500 p-3 mb-4 rounded">
-                <p class="font-bold text-blue-800">當選人資訊</p>
-                <div class="flex justify-between items-center text-sm text-blue-800"><span>姓名</span><span class="font-semibold">${winner.name} (${winner.party})</span></div>
-                <div class="flex justify-between items-center text-sm text-blue-800"><span>得票數</span><span class="font-semibold">${winner.votes.toLocaleString()} 票</span></div>
-                <div class="flex justify-between items-center text-sm text-blue-800"><span>催票率</span><span class="font-semibold">${winnerCallRate}%</span></div>
+                <p class="font-bold text-blue-800">第一高票候選人資訊</p>
+                <div class="flex justify-between items-center text-sm text-blue-800"><span>姓名</span><span class="font-semibold">${firstPlace.name} (${firstPlace.party})</span></div>
+                <div class="flex justify-between items-center text-sm text-blue-800"><span>得票數</span><span class="font-semibold">${firstPlace.votes.toLocaleString()} 票</span></div>
+                <div class="flex justify-between items-center text-sm text-blue-800"><span>催票率</span><span class="font-semibold">${firstPlaceCallRate}%</span></div>
             </div>
 
-            ${runnerUp.name !== '無' ? `
+            ${secondPlace.name !== '無' ? `
             <div class="bg-red-50 border-l-4 border-red-500 p-3 mb-4 rounded">
                 <p class="font-bold text-red-800">第二高票候選人資訊</p>
-                <div class="flex justify-between items-center text-sm text-red-800"><span>姓名</span><span class="font-semibold">${runnerUp.name} (${runnerUp.party})</span></div>
-                <div class="flex justify-between items-center text-sm text-red-800"><span>得票數</span><span class="font-semibold">${runnerUp.votes.toLocaleString()} 票</span></div>
+                <div class="flex justify-between items-center text-sm text-red-800"><span>姓名</span><span class="font-semibold">${secondPlace.name} (${secondPlace.party})</span></div>
+                <div class="flex justify-between items-center text-sm text-red-800"><span>得票數</span><span class="font-semibold">${secondPlace.votes.toLocaleString()} 票</span></div>
             </div>
             ` : ''}
 
@@ -536,9 +619,9 @@ async function renderVillageDetails(village) {
                  <div id="historical-chart-container" class="h-72 w-full">
                     <p class="text-gray-500 animate-pulse text-center pt-12">正在載入歷史催票率資料...</p>
                  </div>
-                 <div id="attitude-reversal-info" class="mt-4 p-3 bg-yellow-50 border-l-4 border-yellow-500 rounded hidden">
+                 <div id="attitude-reversal-info" class="mt-4 p-3 bg-yellow-50 border-l-4 border-yellow-500 rounded ${reversalCount === 0 ? 'hidden' : ''}">
                     <p class="font-bold text-yellow-800">搖擺程度分析</p>
-                    <p class="text-sm text-yellow-700" id="reversal-count-text"></p>
+                    <p class="text-sm text-yellow-700" id="reversal-count-text">在可追溯的歷次選舉中，該村里主要政黨領先地位反轉了 ${reversalCount} 次。</p>
                  </div>
             </div>
         </div>
@@ -578,92 +661,84 @@ async function renderVillageDetails(village) {
         options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false }, title: { display: true, text: '此村里各候選人得票數' } } }
     });
 
-    const historicalData = await fetchAndProcessHistoricalData(village.geo_key);
+    // 這裡的 historicalData 不再需要重新 fetch，因為 allVillageHistoricalPartyPercentages 已經包含了
+    const historicalData = allVillageHistoricalPartyPercentages[village.geo_key];
     renderHistoricalChart(historicalData);
-
-    // 計算並顯示反轉態度次數
-    if (historicalData) {
-        const reversalCount = calculateAttitudeReversals(historicalData);
-        const reversalInfoDiv = document.getElementById('attitude-reversal-info');
-        const reversalCountText = document.getElementById('reversal-count-text');
-        if (reversalInfoDiv && reversalCountText) {
-            reversalCountText.textContent = `在可追溯的歷次選舉中，該村里主要政黨領先地位反轉了 ${reversalCount} 次。`;
-            reversalInfoDiv.classList.remove('hidden');
-        }
-    }
-}
-
-// --- Historical Chart ---
-async function fetchAndProcessHistoricalData(geoKey) {
-    const historicalResults = {};
-    const yearKeys = Object.keys(dataSources).sort();
-
-    for (const yearKey of yearKeys) {
-        const allYearData = await getVoteData(yearKey);
-        const villageDataForYear = allYearData.filter(row => row.geo_key === geoKey);
-
-        if (villageDataForYear.length > 0) {
-            // 由於 electorate 和 total_votes 在 CSV 中可能在每個候選人行重複，
-            // 這裡我們只取第一行的 electorate 和 total_votes 作為村里的總數
-            const electorate = villageDataForYear[0].electorate || 0;
-            const total_votes = villageDataForYear[0].total_votes || 0;
-
-            if (electorate > 0) {
-                let kmtVotes = 0, dppVotes = 0, otherVotes = 0;
-                villageDataForYear.forEach(row => {
-                    if (row.party_name === KMT_PARTY_NAME) kmtVotes += row.votes || 0;
-                    else if (row.party_name === DPP_PARTY_NAME) dppVotes += row.votes || 0;
-                    else otherVotes += row.votes || 0;
-                });
-                const yearLabel = yearKey.split('_')[0];
-                historicalResults[yearLabel] = {
-                    KMT: (kmtVotes / electorate),
-                    DPP: (dppVotes / electorate),
-                    Other: (otherVotes / electorate),
-                    NonVoter: ((electorate - total_votes) / electorate)
-                };
-            }
-        }
-    }
-
-    const labels = Object.keys(historicalResults).sort();
-    if (labels.length === 0) return null;
-
-    return {
-        labels,
-        datasets: [
-            { label: '中國國民黨', data: labels.map(y => historicalResults[y].KMT * 100), borderColor: '#3b82f6', fill: false, tension: 0.1, spanGaps: true },
-            { label: '民主進步黨', data: labels.map(y => historicalResults[y].DPP * 100), borderColor: '#16a34a', fill: false, tension: 0.1, spanGaps: true },
-            { label: '其他', data: labels.map(y => historicalResults[y].Other * 100), borderColor: 'rgba(0,0,0,0.4)', fill: false, tension: 0.1, spanGaps: true },
-            { label: '未投票率', data: labels.map(y => historicalResults[y].NonVoter * 100), borderColor: '#f97316', fill: false, tension: 0.1, borderDash: [5, 5], spanGaps: true }
-        ]
-    };
 }
 
 /**
+ * 獲取並處理單一村里的歷史數據，用於繪製折線圖。
+ * 注意：此函數現在從預載入的 allVillageHistoricalPartyPercentages 中獲取數據，而不是重新解析 CSV。
+ * @param {string} geoKey - 村里的地理鍵。
+ * @returns {Object|null} 歷史數據的 Chart.js 格式，或 null。
+ */
+async function fetchAndProcessHistoricalData(geoKey) {
+    const historicalRawData = allVillageHistoricalPartyPercentages[geoKey];
+    if (!historicalRawData || Object.keys(historicalRawData).length === 0) {
+        return null;
+    }
+
+    const labels = Object.keys(historicalRawData).sort();
+    if (labels.length === 0) return null;
+
+    // 將原始得票數轉換為百分比，用於圖表顯示
+    const datasets = [
+        { label: '中國國民黨', data: [], borderColor: '#3b82f6', fill: false, tension: 0.1, spanGaps: true },
+        { label: '民主進步黨', data: [], borderColor: '#16a34a', fill: false, tension: 0.1, spanGaps: true },
+        { label: '其他', data: [], borderColor: 'rgba(0,0,0,0.4)', fill: false, tension: 0.1, spanGaps: true },
+        { label: '未投票率', data: [], borderColor: '#f97316', fill: false, tension: 0.1, borderDash: [5, 5], spanGaps: true }
+    ];
+
+    labels.forEach(year => {
+        const yearData = historicalRawData[year];
+        const electorate = yearData.electorate || 0;
+        const total_votes = yearData.total_votes || 0;
+
+        if (electorate > 0) {
+            datasets[0].data.push((yearData.KMT / electorate) * 100);
+            datasets[1].data.push((yearData.DPP / electorate) * 100);
+            datasets[2].data.push((yearData.Other / electorate) * 100);
+            datasets[3].data.push(((electorate - total_votes) / electorate) * 100);
+        } else {
+            // 如果沒有選舉人數，則推入 null 以在圖表中顯示為斷點
+            datasets[0].data.push(null);
+            datasets[1].data.push(null);
+            datasets[2].data.push(null);
+            datasets[3].data.push(null);
+        }
+    });
+
+    return { labels, datasets };
+}
+
+
+/**
  * 計算村里歷年主要政黨領先地位反轉的次數。
- * @param {Object} historicalData - 包含歷年投票趨勢的數據。
+ * @param {Object} historicalPartyPercentagesForOneVillage - 包含單一村里歷年政黨得票百分比的物件。
  * @returns {number} 反轉次數。
  */
-function calculateAttitudeReversals(historicalData) {
-    if (!historicalData || !historicalData.labels || historicalData.labels.length < 2) {
+function calculateAttitudeReversals(historicalPartyPercentagesForOneVillage) {
+    const years = Object.keys(historicalPartyPercentagesForOneVillage).sort();
+    if (years.length < 2) {
         return 0; // 至少需要兩年的數據才能計算反轉
     }
 
     let reversalCount = 0;
     let previousLeadingParty = null;
 
-    historicalData.labels.forEach((year, index) => {
-        const kmtPercentage = historicalData.datasets[0].data[index];
-        const dppPercentage = historicalData.datasets[1].data[index];
+    years.forEach(year => {
+        const yearData = historicalPartyPercentagesForOneVillage[year];
+        // 使用實際得票數判斷領先政黨，避免因四捨五入導致的誤判
+        const kmtVotes = yearData.candidateVotes[KMT_PARTY_NAME] || 0;
+        const dppVotes = yearData.candidateVotes[DPP_PARTY_NAME] || 0;
 
         let currentLeadingParty = null;
-        if (kmtPercentage > dppPercentage) {
+        if (kmtVotes > dppVotes) {
             currentLeadingParty = KMT_PARTY_NAME;
-        } else if (dppPercentage > kmtPercentage) {
+        } else if (dppVotes > kmtVotes) {
             currentLeadingParty = DPP_PARTY_NAME;
         } else {
-            // 如果兩黨得票率相同，不計為明確領先，保持 previousLeadingParty 不變
+            // 如果兩黨得票相同，不計為明確領先，保持 previousLeadingParty 不變
             // 或者可以根據需求定義平手情況的處理方式
         }
 
@@ -686,15 +761,39 @@ function renderHistoricalChart(data) {
         container.innerHTML = '<p class="text-center text-gray-500 pt-12">此村里沒有足夠的歷史資料可供分析。</p>';
         return;
     }
-    container.innerHTML = '<canvas id="village-historical-chart"></canvas>';
+    // 固定背景顏色為亮灰色
+    container.innerHTML = '<canvas id="village-historical-chart" style="background-color: #f0f0f0;"></canvas>';
     const ctx = document.getElementById('village-historical-chart').getContext('2d');
     if (villageHistoricalChart) villageHistoricalChart.destroy();
     villageHistoricalChart = new Chart(ctx, {
         type: 'line', data: data,
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { title: { display: true, text: '歷年投票趨勢分析' }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}%` } } },
-            scales: { y: { beginAtZero: true, title: { display: true, text: '百分比 (%)' }, ticks: { callback: v => v + '%' } } }
+            plugins: {
+                title: { display: true, text: '歷年投票趨勢分析' },
+                tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(2) + '%' : 'N/A'}` } },
+                // 確保圖例文字顏色在暗色模式下可見
+                legend: {
+                    labels: {
+                        color: '#333' // 固定為深色文字
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: '#333' // 固定 X 軸標籤顏色
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: '百分比 (%)', color: '#333' }, // 固定 Y 軸標題顏色
+                    ticks: {
+                        callback: v => v + '%',
+                        color: '#333' // 固定 Y 軸標籤顏色
+                    }
+                }
+            }
         }
     });
 }
