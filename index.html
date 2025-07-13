@@ -135,7 +135,6 @@
                                  <p class="font-semibold">請從上方選擇一種選舉類型開始分析。</p>
                              </div>
                         </div>
-                        <!-- MODIFIED: 詳細的指標說明 -->
                          <div class="mt-6 pt-4 border-t border-gray-200">
                              <h3 class="text-lg leading-6 font-medium text-gray-900">關鍵指標說明</h3>
                              <div class="mt-2 text-left text-sm text-gray-700 space-y-4">
@@ -167,6 +166,11 @@
 
                     <!-- Tab 2: 篩選與設定 -->
                     <div id="tab-content-2" class="tab-content hidden p-4">
+                        <!-- *** NEW: 2012 年份警告訊息 *** -->
+                        <div id="warning-2012" class="hidden bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-4 rounded-md" role="alert">
+                            <p class="font-bold">功能限制提醒</p>
+                            <p>由於 2012 年的行政區劃與現行圖資不符，此年份的資料【無法】顯示村里級別的地圖與詳細數據。您仍然可以查看各選區的整體得票概況。</p>
+                        </div>
                         <div class="space-y-4">
                             <div>
                                 <label for="year-selector" class="block text-sm font-medium text-gray-700 mb-1">1. 選擇年份</label>
@@ -192,7 +196,6 @@
                                 </select>
                             </div>
                         </div>
-                        <!-- MODIFIED: 詳細的指標說明 -->
                          <div class="mt-6 pt-4 border-t border-gray-200">
                              <h3 class="text-lg leading-6 font-medium text-gray-900">關鍵指標說明</h3>
                              <div class="mt-2 text-left text-sm text-gray-700 space-y-4">
