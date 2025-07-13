@@ -1,15 +1,16 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 29.0.0
+ * @version 31.0.0
  * @date 2025-07-13
  * 主要改進：
- * 1.  **調整搖擺區規則**：將「高度搖擺區」的判定標準從 ">2次" 改回 ">3次"，並更新了相關說明。
- * 2.  **豐富化歷史趨勢分析**：當分析「區域立委」、「總統」或「政黨票」時，歷史趨勢圖會額外載入縣市長選舉的資料作為參考，並以特殊圖示(菱形)標示，提供更全面的政治傾向變動觀察。
- * 3.  **綜合搖擺計算**：搖擺次數的計算現在會綜合考量主要選舉與縣市長選舉的歷史資料，提供更精準的搖擺程度評估。
+ * 1.  **修正地圖顏色計算**：統一所有選舉類型的地圖顏色計算邏輯，確保無論是候選人或政黨票，都根據實際第一、二高票的催票率差距來決定顏色，修正了先前政黨票顏色判斷不準確的問題。
+ * 2.  **修正政黨票資料讀取**：調整資料處理邏輯，使其能正確讀取並解析沒有 "candidate_name" 欄位的政黨票資料。
+ * 3.  **豐富化歷史趨勢分析**：當分析「區域立委」、「總統」或「政黨票」時，歷史趨勢圖會額外載入縣市長選舉的資料作為參考。
+ * 4.  **綜合搖擺計算**：搖擺次數的計算現在會綜合考量主要選舉與縣市長選舉的歷史資料。
  */
 
-console.log('Running script.js version 29.0.0 with enhanced historical analysis.');
+console.log('Running script.js version 31.0.0 with corrected color logic.');
 
 // --- 全域變數與設定 ---
 
@@ -329,14 +330,21 @@ async function loadAllWinners() {
                 }
                 
                 const villageYearData = allVillageHistoricalPartyPercentages[geo_key][category][year];
-                const effectivePartyName = (category === 'party') ? candidate_name : party_name;
-
-                if (effectivePartyName === KMT_PARTY_NAME) villageYearData.KMT += votes || 0;
-                else if (effectivePartyName === DPP_PARTY_NAME) villageYearData.DPP += votes || 0;
+                
+                // For KMT/DPP/Other aggregation, party_name is always what we need.
+                if (party_name === KMT_PARTY_NAME) villageYearData.KMT += votes || 0;
+                else if (party_name === DPP_PARTY_NAME) villageYearData.DPP += votes || 0;
                 else villageYearData.Other += votes || 0;
 
-                if (!villageYearData.candidateVotes[effectivePartyName]) villageYearData.candidateVotes[effectivePartyName] = 0;
-                villageYearData.candidateVotes[effectivePartyName] += votes || 0;
+                // For storing individual votes, the key is the party name for party-list elections,
+                // and the candidate name for other elections.
+                const entityKey = (category === 'party') ? party_name : candidate_name;
+                if (entityKey) {
+                    if (!villageYearData.candidateVotes[entityKey]) {
+                        villageYearData.candidateVotes[entityKey] = 0;
+                    }
+                    villageYearData.candidateVotes[entityKey] += votes || 0;
+                }
 
                 if (villageYearData.electorate === 0 && electorate > 0) villageYearData.electorate = electorate;
                 if (villageYearData.total_votes === 0 && total_votes > 0) villageYearData.total_votes = total_votes;
@@ -346,7 +354,6 @@ async function loadAllWinners() {
     console.log('所有歷史投票數據載入完畢。');
 }
 
-// *** MODIFIED: 計算搖擺次數時，綜合納入縣市長選舉資料 ***
 function calculateAllVillageReversalCounts() {
     console.log('正在計算所有村里的搖擺次數...');
     for (const geoKey in allVillageHistoricalPartyPercentages) {
@@ -388,10 +395,12 @@ function processVoteData(voteData) {
         }
         const d = districtTemp[districtName];
         
-        const candName = row.candidate_name;
-        if (!candName) return;
+        // For party votes, the 'candidate' is the party itself. For others, it's the candidate's name.
+        const candName = (currentElectionCategory === 'party') ? row.party_name : row.candidate_name;
+        if (!candName) return; // Skip if no identifier
 
-        const effectivePartyName = (currentElectionCategory === 'party') ? candName : row.party_name;
+        // The party associated with the vote is always in the party_name column.
+        const effectivePartyName = row.party_name;
 
         if (!d.candidates[candName]) {
             d.candidates[candName] = { votes: 0, party: effectivePartyName };
@@ -505,7 +514,6 @@ function renderMapLayers() {
             let fillColor = getColor(village);
             let borderColor = 'white';
             let borderWidth = 0.5;
-            // *** MODIFIED: 搖擺區規則從 >2 改為 >3 ***
             if (village && village.reversalCount > 3) {
                 borderColor = '#FBBF24';
                 borderWidth = 2.5;
@@ -519,7 +527,6 @@ function renderMapLayers() {
                 layer.on({
                     mouseover: e => {
                         const style = { weight: 2, color: '#333' };
-                        // *** MODIFIED: 搖擺區規則從 >2 改為 >3 ***
                         if (village.reversalCount > 3) {
                             style.color = '#FBBF24';
                             style.weight = 3;
@@ -542,28 +549,39 @@ function renderMapLayers() {
     }
 }
 
+// *** FIX START: Corrected and simplified color calculation logic ***
 function getColor(village) {
-    if (!village || !village.candidates[0] || !village.electorate) return '#cccccc';
-    const leader = village.candidates[0];
-    const runnerUp = village.candidates[1];
-    
-    if (currentElectionCategory === 'party') {
-        const kmtVotes = village.candidates.find(c => c.party === KMT_PARTY_NAME)?.votes || 0;
-        const dppVotes = village.candidates.find(c => c.party === DPP_PARTY_NAME)?.votes || 0;
-        const turnoutDiff = Math.abs(kmtVotes - dppVotes) / village.electorate;
-        if (turnoutDiff < 0.05) return '#ef4444';
-        if (kmtVotes > dppVotes) return '#3b82f6';
-        if (dppVotes > kmtVotes) return '#16a34a';
-        return 'rgba(0,0,0,0.4)';
+    // Return gray for invalid data
+    if (!village || !village.candidates[0] || !village.electorate || village.electorate === 0) {
+        return '#cccccc';
     }
 
-    if (!runnerUp) return (leader.party === KMT_PARTY_NAME) ? '#3b82f6' : (leader.party === DPP_PARTY_NAME) ? '#16a34a' : 'rgba(0,0,0,0.4)';
+    const leader = village.candidates[0];
+    const runnerUp = village.candidates[1];
+
+    // If there's no runner-up, color based on the leader's party.
+    if (!runnerUp) {
+        if (leader.party === KMT_PARTY_NAME) return '#3b82f6'; // KMT
+        if (leader.party === DPP_PARTY_NAME) return '#16a34a'; // DPP
+        return 'rgba(0,0,0,0.4)'; // Other
+    }
+
+    // Calculate the difference in mobilization rate (催票率差距) between the leader and the runner-up.
     const turnoutDiff = Math.abs(leader.votes - runnerUp.votes) / village.electorate;
-    if (turnoutDiff < 0.05) return '#ef4444';
-    if (leader.party === KMT_PARTY_NAME) return '#3b82f6';
-    if (leader.party === DPP_PARTY_NAME) return '#16a34a';
-    return 'rgba(0,0,0,0.4)';
+
+    // If the difference is less than 5%, it's a "battleground" area (激戰區).
+    if (turnoutDiff < 0.05) {
+        return '#ef4444'; // Red for battleground
+    }
+
+    // Otherwise, color based on the leading party.
+    if (leader.party === KMT_PARTY_NAME) return '#3b82f6'; // KMT
+    if (leader.party === DPP_PARTY_NAME) return '#16a34a'; // DPP
+    
+    // Default color for any other party leading.
+    return 'rgba(0,0,0,0.4)'; // Other
 }
+// *** FIX END ***
 
 function renderDistrictOverview(districtName) {
     const container = tabContents[3];
@@ -727,7 +745,6 @@ async function renderVillageDetails(village) {
 
 // --- 以下為既有輔助函式，部分已修改 ---
 
-// *** MODIFIED: 根據選舉類型篩選歷史資料，並納入縣市長選舉資料作為參考 ***
 function processHistoricalData(geoKey, category) {
     const MAYORAL_YEARS = ['2014', '2018', '2022'];
     const mainCategoryHistory = allVillageHistoricalPartyPercentages[geoKey]?.[category] || {};
