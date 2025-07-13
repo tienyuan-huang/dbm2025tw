@@ -1,26 +1,22 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 32.0.0
+ * @version 34.0.0
  * @date 2025-07-13
  * 主要改進：
- * 1.  **增加資料讀取彈性**：在處理投票資料時，增加對備用欄位名稱的支援 (例如 `VILLCODE` 作為 `geo_key` 的備用)。
- * 2.  **增加除錯資訊**：當關鍵的資料欄位 (如 `geo_key`, `electorate`) 缺失時，在瀏覽器控制台顯示明確的警告訊息，方便使用者檢查自己的資料檔。
- * 3.  **補全資料源**：在縣市長選舉類別中，新增 2010 年的資料路徑，使歷史資料更完整。
- * 4.  修正地圖顏色計算：統一所有選舉類型的地圖顏色計算邏輯。
- * 5.  修正政黨票資料讀取：使其能正確讀取沒有 "candidate_name" 欄位的政黨票資料。
- * 6.  豐富化歷史趨勢分析：當分析「區域立委」、「總統」或「政黨票」時，歷史趨勢圖會額外載入縣市長選舉的資料作為參考。
- * 7.  綜合搖擺計算：搖擺次數的計算現在會綜合考量主要選舉與縣市長選舉的歷史資料。
+ * 1.  **[修復]** 在村里詳情頁面，為第二高票的候選人補上催票率計算與顯示。
+ * 2.  **[修復]** 修正計算村里搖擺次數的邏輯，使其能正確判斷政黨輪替，並在地圖上繪製出高度搖擺區的黃色外框。
+ * 3.  保持原有的 2012 年資料處理、資料讀取彈性等功能不變。
  */
 
-console.log('Running script.js version 32.0.0 with enhanced data validation.');
+console.log('Running script.js version 34.0.0 with fixes for swing districts and second place turnout rate.');
 
 // --- 全域變數與設定 ---
 
 let map;
 let geoJsonLayer, annotationLayer;
 // DOM 元素引用
-let yearSelector, districtSelector, searchInput, clearSearchBtn;
+let yearSelector, districtSelector, searchInput, clearSearchBtn, warning2012;
 let infoToggle, infoContainer, mapContainer, collapsibleContent, toggleText, toggleIconCollapse, toggleIconExpand;
 let stepperItems = {};
 let tabContents = {};
@@ -77,7 +73,6 @@ const dataSources = {
             '2022': { path: 'data/2022/mayor_votes.csv', name: '2022 縣市長選舉' },
             '2018': { path: 'data/2018/mayor_votes.csv', name: '2018 縣市長選舉' },
             '2014': { path: 'data/2014/mayor_votes.csv', name: '2014 縣市長選舉' },
-            // *** NEW: 新增 2010 年縣市長選舉資料源 ***
             '2010': { path: 'data/2010/mayor_votes.csv', name: '2010 縣市長選舉' },
         }
     },
@@ -134,6 +129,7 @@ function initializeDOMReferences() {
     toggleText = document.getElementById('toggle-text');
     toggleIconCollapse = document.getElementById('toggle-icon-collapse');
     toggleIconExpand = document.getElementById('toggle-icon-expand');
+    warning2012 = document.getElementById('warning-2012');
 
     for (let i = 1; i <= 4; i++) {
         stepperItems[i] = document.getElementById(`stepper-${i}`);
@@ -213,6 +209,7 @@ function resetToStep(stepIndex) {
         if (geoJsonLayer) map.removeLayer(geoJsonLayer);
         currentSelectedDistrict = 'none';
         map.setView([23.9738, 120.982], 7.5);
+        if (warning2012) warning2012.classList.add('hidden');
     }
     if (stepIndex === 1) {
         currentElectionCategory = null;
@@ -230,6 +227,7 @@ function selectElectionCategory(category) {
     populateYearFilter();
     districtSelector.innerHTML = '<option value="none" selected>— 請先選擇年份 —</option>';
     searchInput.value = '';
+    if(warning2012) warning2012.classList.add('hidden');
     switchTab(2);
 }
 
@@ -245,6 +243,12 @@ function populateYearFilter() {
 }
 
 async function loadAndDisplayYear(year) {
+    if (year === '2012') {
+        warning2012.classList.remove('hidden');
+    } else {
+        warning2012.classList.add('hidden');
+    }
+
     if (year === 'none' || !currentElectionCategory) {
         if (geoJsonLayer) map.removeLayer(geoJsonLayer);
         districtSelector.innerHTML = '<option value="none" selected>— 請先選擇年份 —</option>';
@@ -259,7 +263,6 @@ async function loadAndDisplayYear(year) {
     Object.values(electionTypeButtons).forEach(b => b.disabled = true);
     yearSelector.disabled = true;
     
-    // *** NEW: 重置除錯旗標 ***
     window.loggedMissingGeoKey = false;
     window.loggedMissingElectorate = false;
     window.loggedMissingDistrict = false;
@@ -288,7 +291,14 @@ function handleDistrictSelection() {
         return;
     }
     currentSelectedDistrict = selected;
-    renderMapLayers();
+
+    if (yearSelector.value === '2012') {
+        if (geoJsonLayer) map.removeLayer(geoJsonLayer);
+        map.setView([23.9738, 120.982], 7.5);
+    } else {
+        renderMapLayers();
+    }
+    
     renderDistrictOverview(selected);
     switchTab(3);
 }
@@ -305,7 +315,6 @@ async function getVoteData(cacheKey, path) {
                 complete: res => {
                     if (res.errors.length) {
                         console.error(`解析 ${path} 時發生錯誤:`, res.errors);
-                        // 即使有錯也回傳部分資料，讓後續流程處理
                         resolve(res.data); 
                     } else {
                         resolve(res.data);
@@ -335,7 +344,6 @@ async function loadAllWinners() {
             const voteDataRows = await getVoteData(cacheKey, source.path);
             
             voteDataRows.forEach(row => {
-                // *** MODIFIED: 使用備用欄位名稱 ***
                 const geo_key = row.geo_key || row.VILLCODE;
                 const { party_name, candidate_name, votes, electorate, total_votes } = row;
 
@@ -396,7 +404,6 @@ function calculateAllVillageReversalCounts() {
     console.log('所有村里的搖擺次數計算完畢。');
 }
 
-// *** MODIFIED: 增加詳細的資料驗證與除錯資訊 ***
 function processVoteData(voteData) {
     villageResults = {};
     districtResults = {};
@@ -438,7 +445,7 @@ function processVoteData(voteData) {
         d.townships.add(row.township_name);
 
         const { county_name, township_name, village_name, electorate, total_votes } = row;
-        const geo_key = row.geo_key || row.VILLCODE; // 嘗試備用欄位
+        const geo_key = row.geo_key || row.VILLCODE;
 
         if (!geo_key) {
             if (!window.loggedMissingGeoKey) {
@@ -554,7 +561,7 @@ function renderMapLayers() {
             let borderColor = 'white';
             let borderWidth = 0.5;
             if (village && village.reversalCount > 3) {
-                borderColor = '#FBBF24';
+                borderColor = '#FBBF24'; // 黃色
                 borderWidth = 2.5;
             }
             return { fillColor, weight: borderWidth, opacity: 1, color: borderColor, fillOpacity: 0.7 };
@@ -567,7 +574,7 @@ function renderMapLayers() {
                     mouseover: e => {
                         const style = { weight: 2, color: '#333' };
                         if (village.reversalCount > 3) {
-                            style.color = '#FBBF24';
+                            style.color = '#FBBF24'; // 黃色
                             style.weight = 3;
                         }
                         e.target.setStyle(style).bringToFront();
@@ -586,35 +593,34 @@ function renderMapLayers() {
     if (geoJsonLayer.getLayers().length > 0) {
         map.fitBounds(geoJsonLayer.getBounds());
     } else {
-        // 如果沒有任何圖層被渲染，可能代表資料有問題
         console.warn("地圖上沒有繪製任何村里。請檢查：\n1. 選取的年份和選區是否正確。\n2. 瀏覽器控制台是否有資料缺失的警告訊息。\n3. 'village.json' 的 VILLCODE 是否能對應到 CSV 中的 'geo_key'。");
     }
 }
 
 function getColor(village) {
     if (!village || !village.candidates || village.candidates.length === 0 || !village.electorate || village.electorate === 0) {
-        return '#cccccc'; // 沒有資料或資料不全，顯示灰色
+        return '#cccccc';
     }
 
     const leader = village.candidates[0];
     const runnerUp = village.candidates[1];
 
     if (!runnerUp) {
-        if (leader.party === KMT_PARTY_NAME) return '#3b82f6'; // KMT
-        if (leader.party === DPP_PARTY_NAME) return '#16a34a'; // DPP
-        return 'rgba(0,0,0,0.4)'; // Other
+        if (leader.party === KMT_PARTY_NAME) return '#3b82f6';
+        if (leader.party === DPP_PARTY_NAME) return '#16a34a';
+        return 'rgba(0,0,0,0.4)';
     }
 
     const turnoutDiff = Math.abs(leader.votes - runnerUp.votes) / village.electorate;
 
     if (turnoutDiff < 0.05) {
-        return '#ef4444'; // 激戰區
+        return '#ef4444';
     }
 
-    if (leader.party === KMT_PARTY_NAME) return '#3b82f6'; // KMT
-    if (leader.party === DPP_PARTY_NAME) return '#16a34a'; // DPP
+    if (leader.party === KMT_PARTY_NAME) return '#3b82f6';
+    if (leader.party === DPP_PARTY_NAME) return '#16a34a';
     
-    return 'rgba(0,0,0,0.4)'; // 其他政黨領先
+    return 'rgba(0,0,0,0.4)';
 }
 
 function renderDistrictOverview(districtName) {
@@ -700,9 +706,15 @@ async function renderVillageDetails(village) {
     const existingAnnotation = annotations[village.geo_key]?.note || '';
     const districtTotalElectorate = districtResults[districtName]?.electorate || 0;
     const villageElectorateProportion = districtTotalElectorate > 0 ? (electorate / districtTotalElectorate * 100).toFixed(2) : 0;
+    
+    // 定義第一、二高票
     const firstPlace = candidates[0];
     const secondPlace = candidates[1] || { name: '無', votes: 0, party: 'N/A' };
+    
+    // 計算催票率
     const firstPlaceCallRate = electorate > 0 ? (firstPlace.votes / electorate * 100).toFixed(2) : 0;
+    // *** FIX: 計算並新增第二高票的催票率 ***
+    const secondPlaceCallRate = electorate > 0 ? (secondPlace.votes / electorate * 100).toFixed(2) : 0;
 
     const html = `
         <div class="p-4">
@@ -726,6 +738,8 @@ async function renderVillageDetails(village) {
                 <p class="font-bold text-red-800">第二高票資訊</p>
                 <div class="flex justify-between items-center text-sm text-red-800"><span>${(currentElectionCategory === 'party') ? '政黨' : '候選人'}</span><span class="font-semibold">${secondPlace.name} (${secondPlace.party})</span></div>
                 <div class="flex justify-between items-center text-sm text-red-800"><span>得票數</span><span class="font-semibold">${secondPlace.votes.toLocaleString()} 票</span></div>
+                <!-- *** FIX: 新增第二高票的催票率顯示 *** -->
+                <div class="flex justify-between items-center text-sm text-red-800"><span>催票率</span><span class="font-semibold">${secondPlaceCallRate}%</span></div>
             </div>` : ''}
             <div class="mt-4 h-64"><canvas id="village-vote-chart"></canvas></div>
             <div class="mt-6 border-t pt-4">
@@ -830,27 +844,45 @@ function processHistoricalData(geoKey, category) {
     return { labels, datasets, showMayorNote, dataAvailable: true };
 }
 
+// *** FIX: 修正計算搖擺次數的邏輯 ***
 function calculateAttitudeReversals(historicalData) {
     if (!historicalData) return 0;
     const years = Object.keys(historicalData).sort();
     if (years.length < 2) return 0;
+
     let reversalCount = 0;
     let previousLeadingParty = null;
+
     years.forEach(year => {
         const yearData = historicalData[year];
         if (!yearData) return;
-        const kmtVotes = yearData.candidateVotes[KMT_PARTY_NAME] || 0;
-        const dppVotes = yearData.candidateVotes[DPP_PARTY_NAME] || 0;
+
+        // 直接使用匯總好的 KMT 和 DPP 總票數進行比較
+        const kmtVotes = yearData.KMT || 0;
+        const dppVotes = yearData.DPP || 0;
+
         let currentLeadingParty = null;
-        if (kmtVotes > dppVotes) currentLeadingParty = KMT_PARTY_NAME;
-        else if (dppVotes > kmtVotes) currentLeadingParty = DPP_PARTY_NAME;
+        // 只有在 KMT 和 DPP 票數不相等時才確定領先者
+        if (kmtVotes > dppVotes) {
+            currentLeadingParty = KMT_PARTY_NAME;
+        } else if (dppVotes > kmtVotes) {
+            currentLeadingParty = DPP_PARTY_NAME;
+        }
+
+        // 如果這次和上次的領先政黨都存在，且兩者不同，則計為一次反轉
         if (previousLeadingParty && currentLeadingParty && currentLeadingParty !== previousLeadingParty) {
             reversalCount++;
         }
-        if (currentLeadingParty) previousLeadingParty = currentLeadingParty;
+        
+        // 更新上一次的領先政黨
+        if (currentLeadingParty) {
+            previousLeadingParty = currentLeadingParty;
+        }
     });
+
     return reversalCount;
 }
+
 
 function renderHistoricalChart(chartData) {
     const container = document.getElementById('historical-chart-container');
