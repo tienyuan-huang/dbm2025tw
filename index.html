@@ -21,7 +21,204 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 
     <!-- Custom Styles -->
-    <link rel="stylesheet" href="style.css">
+    <style>
+        /* 使用 Noto Sans TC 作為主要字體 */
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+        }
+
+        /* Leaflet 地圖容器的高度 */
+        #map {
+            height: 100%;
+            width: 100%;
+            z-index: 10;
+        }
+
+        /* 讓滾動條更好看 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* 步驟導覽列樣式 */
+        .stepper-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.875rem; /* 14px */
+            line-height: 1.25rem; /* 20px */
+        }
+
+        .stepper-item {
+            display: flex;
+            align-items: center;
+            font-weight: 500; /* medium */
+        }
+        .stepper-item .stepper-icon {
+            margin-right: 0.5rem; /* space-x-2 */
+        }
+
+        .stepper-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.5rem; /* w-6 */
+            height: 1.5rem; /* h-6 */
+            border-radius: 9999px; /* rounded-full */
+            font-weight: 700; /* bold */
+        }
+
+        .stepper-separator {
+            color: #9ca3af; /* gray-400 */
+            padding-left: 0.25rem;
+            padding-right: 0.25rem;
+        }
+
+        /* 步驟：停用狀態 (預設) */
+        .stepper-item.disabled {
+            color: #9ca3af; /* gray-400 */
+        }
+        .stepper-item.disabled .stepper-icon {
+            background-color: #e5e7eb; /* gray-200 */
+            color: #6b7280; /* gray-500 */
+        }
+
+        /* 步驟：已完成狀態 (可點擊返回) */
+        .stepper-item.completed {
+            color: #4f46e5; /* indigo-600 */
+            cursor: pointer;
+        }
+        .stepper-item.completed:hover {
+            color: #3730a3; /* indigo-800 */
+        }
+        .stepper-item.completed .stepper-icon {
+            background-color: #ffffff; /* bg-white */
+            color: #4f46e5; /* text-indigo-600 */
+            border: 2px solid #6366f1; /* border-indigo-500 */
+        }
+
+        /* 步驟：目前啟用狀態 */
+        .stepper-item.active {
+            color: #4338ca; /* indigo-700 */
+        }
+        .stepper-item.active .stepper-icon {
+            background-color: #6366f1; /* bg-indigo-500 */
+            color: #ffffff; /* text-white */
+        }
+
+        /* 分頁內容 */
+        .tab-content {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 預設隱藏，由 JS 控制顯示 */
+        .hidden {
+            display: none;
+        }
+
+        /* ---【修改】選舉類型按鈕樣式 --- */
+        .election-type-btn {
+            width: 100%;
+            padding: 1rem 1.5rem; /* 加大內距 */
+            background-color: #f9fafb; /* bg-gray-50 */
+            border: 1px solid #d1d5db; /* border-gray-300 */
+            border-radius: 0.75rem; /* rounded-xl */
+            text-align: center; /* 文字置中 */
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+        }
+
+        .election-type-btn:hover {
+            border-color: #a5b4fc; /* hover:border-indigo-300 */
+            background-color: #f0f5ff; /* a lighter indigo */
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            transform: translateY(-2px);
+        }
+
+        .election-type-btn:focus {
+            outline: 2px solid transparent;
+            outline-offset: 2px;
+            --tw-ring-color: #818cf8; /* focus:ring-indigo-500 */
+            --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+            --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+            box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+        }
+        
+        /* 按鈕內主要文字 */
+        .election-type-btn .main-text {
+            font-size: 1.25rem; /* 20px */
+            font-weight: 700;
+            color: #1f2937; /* gray-800 */
+        }
+        
+        /* 按鈕內說明文字 */
+        .election-type-btn .sub-text {
+            font-size: 0.875rem; /* 14px */
+            color: #4b5563; /* gray-600 */
+        }
+
+        /* ---【新增】RWD 與無障礙設計：針對手機等小螢幕裝置 --- */
+        @media (max-width: 768px) {
+            /* 提升資訊面板內文案的基礎字體大小，增強可讀性 */
+            #collapsible-content {
+                font-size: 16px;
+            }
+
+            /* 顯著加大選舉按鈕，方便點擊 */
+            .election-type-btn {
+                padding: 1.25rem;
+                margin-bottom: 1rem; /* 增加按鈕間距 */
+            }
+
+            /* 加大按鈕內文字 */
+            .election-type-btn .main-text {
+                font-size: 1.5rem; /* 24px */
+            }
+            .election-type-btn .sub-text {
+                font-size: 1rem; /* 16px */
+            }
+
+            /* 加大步驟導覽列文字與圖示 */
+            .stepper-nav {
+                font-size: 1rem; /* 16px */
+            }
+            .stepper-icon {
+                width: 2rem; /* 32px */
+                height: 2rem; /* 32px */
+            }
+            
+            /* 加大各區塊標題 */
+            .tab-content h3 {
+                font-size: 1.5rem; /* 24px */
+            }
+            
+            /* 統一放大說明文字 */
+            .text-sm {
+                font-size: 1rem; /* 16px */
+            }
+            .text-xs {
+                font-size: 0.875rem; /* 14px */
+            }
+
+            /* 加大下拉選單與輸入框，方便觸控操作 */
+            select, input[type="text"] {
+                font-size: 1rem; /* 16px */
+                padding-top: 0.75rem;
+                padding-bottom: 0.75rem;
+            }
+        }
+    </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
 
@@ -89,47 +286,35 @@
                 <div class="flex-grow overflow-y-auto">
                     <!-- Tab 1: 選舉類型 -->
                     <div id="tab-content-1" class="tab-content p-5">
-                        <h3 class="text-xl leading-6 font-medium text-gray-900 mb-5">1. 請選擇要分析的選舉類型</h3>
-                        <div class="space-y-3">
+                        <h3 class="text-xl leading-6 font-medium text-gray-900 mb-5">1. 請選擇要分析的選舉類型（滑到更下面有說明）</h3>
+                        <div class="space-y-4">
                             <button id="btn-legislator" data-category="legislator" class="election-type-btn">
-                                <div class="icon-wrapper bg-indigo-100 text-indigo-600">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                                </div>
-                                <div class="text-left">
-                                    <span class="font-semibold text-gray-800">區域立委</span>
-                                    <span class="text-xs text-gray-500 block">分析各選區立委選舉</span>
+                                <div>
+                                    <span class="main-text block">區域立委</span>
+                                    <span class="sub-text block">分析各選區立委選舉（僅限罷免相關選區）</span>
                                 </div>
                             </button>
                             <button id="btn-mayor" data-category="mayor" class="election-type-btn">
-                                <div class="icon-wrapper bg-teal-100 text-teal-600">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
-                                </div>
-                                <div class="text-left">
-                                    <span class="font-semibold text-gray-800">縣市長</span>
-                                    <span class="text-xs text-gray-500 block">分析各縣市首長選舉</span>
+                                <div>
+                                    <span class="main-text block">縣市長</span>
+                                    <span class="sub-text block">分析各縣市首長選舉（多村里合併投票所的資料無法顯示）</span>
                                 </div>
                             </button>
                             <button id="btn-president" data-category="president" class="election-type-btn">
-                                <div class="icon-wrapper bg-sky-100 text-sky-600">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-                                </div>
-                                <div class="text-left">
-                                    <span class="font-semibold text-gray-800">總統</span>
-                                    <span class="text-xs text-gray-500 block">分析全國總統大選</span>
+                                <div>
+                                    <span class="main-text block">總統</span>
+                                    <span class="sub-text block">分析全國總統大選（多村里合併投票所的資料無法顯示）</span>
                                 </div>
                             </button>
                             <button id="btn-party" data-category="party" class="election-type-btn">
-                                <div class="icon-wrapper bg-rose-100 text-rose-600">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M15 21v-2a4 4 0 00-4-4H9a4 4 0 00-4 4v2" /></svg>
-                                </div>
-                                <div class="text-left">
-                                    <span class="font-semibold text-gray-800">政黨票</span>
-                                    <span class="text-xs text-gray-500 block">分析不分區立委政黨票</span>
+                                <div>
+                                    <span class="main-text block">政黨票</span>
+                                    <span class="sub-text block">分析不分區立委政黨票（多村里合併投票所的資料無法顯示）</span>
                                 </div>
                             </button>
                         </div>
                         <div class="mt-8 pt-5 border-t border-gray-200">
-                             <h3 class="text-lg leading-6 font-medium text-gray-900">歡迎使用選舉情勢分析工具</h3>
+                             <h3 class="text-lg leading-6 font-medium text-gray-900">歡迎使用拉罷地圖工具 v07.15</h3>
                              <div class="mt-2 text-left text-sm text-gray-700 space-y-2">
                                  <p>本地圖工具旨在透過視覺化分析各選區近年選舉資料，以利規劃溝通策略與催票範圍。</p>
                                  <p class="font-semibold">請從上方選擇一種選舉類型開始分析。</p>
@@ -157,12 +342,36 @@
                                  <ul class="list-disc list-inside space-y-2">
                                      <li><span class="pb-0.5 border-b-2 border-blue-400">標示藍色區域</span>：代表中國國民黨候選人取得 5% 以上的催票率優勢。</li>
                                      <li><span class="pb-0.5 border-b-2 border-green-500">標示綠色區域</span>：代表民主進步黨候選人取得 5% 以上的催票率優勢。</li>
-                                     <li><span class="pb-0.5 border-b-2 border-gray-500">標示黑色區域</span>：代表其他政黨或無黨籍候選人取得領先。</li>
+                                     <li><span class="pb-0.5 border-b-2 border-gray-500">標示黑色區域</span>：代表其他政黨或無黨籍候選人取得 5% 以上的催票率優勢。</li>
                                      <li><span class="pb-0.5 border-b-2 border-red-500">標示紅色區域</span>：代表主要競爭者之間，催票率差距在 5% 以內，屬於激戰區。</li>
                                  </ul>
                              </div>
                         </div>
-                        <!-- *** NEW: 新增聯絡資訊區塊 *** -->
+                        <!-- 【新增】資料來源與圖資聲明區塊 -->
+                        <div class="mt-8 pt-5 border-t border-gray-200">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900">資料來源與圖資聲明</h3>
+                            <div class="mt-2 text-left text-sm text-gray-700 space-y-3">
+                                <p>本工具所使用之資料，均依據「<a href="https://data.gov.tw/license" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">政府資料開放授權條款</a>」進行引用，資料來源如下：</p>
+                                <ul class="list-disc list-inside space-y-2">
+                                    <li>
+                                        <strong>選舉資料</strong>：
+                                        <a href="https://data.gov.tw/dataset/13119" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">
+                                            中央選舉委員會 - 選舉資料庫(含選舉區資料)
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <strong>地理圖資</strong>：
+                                        <a href="https://whgis-nlsc.moi.gov.tw/Opendata/Files.aspx" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">
+                                        國土測繪中心 - 村(里)界(TWD97_121分帶)
+                                        </a>
+                                    </li>
+                                </ul>
+                                <div class="mt-4 p-3 bg-amber-50 border-l-4 border-amber-500 text-amber-800 rounded-md">
+                                    <p class="font-bold">重要聲明</p>
+                                    <p>本地圖工具採用 <strong>2025 年</strong>之村里界圖資進行繪製。所有在此之前的行政區合併、重劃，可能無法精確對應。請您在解讀 2024 年（含）以前的歷史資料時，將此圖資版本差異納入考量。</p>
+                                </div>
+                            </div>
+                        </div>
                         <div class="mt-8 pt-6 border-t border-gray-200 text-center">
                              <p class="text-sm text-gray-600">
                                  錯誤或建議回報請交給：
@@ -175,7 +384,6 @@
 
                     <!-- Tab 2: 篩選與設定 -->
                     <div id="tab-content-2" class="tab-content hidden p-4">
-                        <!-- *** NEW: 2012 年份警告訊息 *** -->
                         <div id="warning-2012" class="hidden bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-4 rounded-md" role="alert">
                             <p class="font-bold">功能限制提醒</p>
                             <p>由於 2012 年的行政區劃與現行圖資不符，此年份的資料【無法】顯示村里級別的地圖與詳細數據。您仍然可以查看各選區的整體得票概況。</p>
