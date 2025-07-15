@@ -1,15 +1,14 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 36.0.0
- * @date 2025-07-15
+ * @version 37.0.0
+ * @date 2025-07-16
  * 主要改進：
- * 1.  **[新增]** 將選票流動分析功能擴展至村里層級，可在村里詳情頁面進行比較。
- * 2.  **[修改]** `renderVillageDetails` 函數，加入村里級的分析UI與結果呈現。
- * 3.  **[優化]** 村里級分析直接使用預載入的歷史資料，提升效能。
+ * 1.  **[新增]** 在「選區總覽」分頁加入操作提示，引導使用者點擊地圖上的村里。
+ * 2.  **[修改]** `renderDistrictOverview` 函數，將新的提示框整合至 UI 中。
  */
 
-console.log('Running script.js version 36.0.0 with village-level vote flow analysis.');
+console.log('Running script.js version 37.0.0 with added user guidance.');
 
 // --- 全域變數與設定 ---
 
@@ -654,6 +653,18 @@ function renderDistrictOverview(districtName) {
     const overviewHtml = `
         <div class="p-4 space-y-4">
             <h2 class="text-2xl font-bold text-gray-800">${districtName}</h2>
+            
+            <!-- 【新增】操作提示 -->
+            <div class="bg-sky-100 border-l-4 border-sky-500 text-sky-800 p-4 rounded-md flex items-start space-x-3" role="alert">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                    <p class="font-bold">操作提示</p>
+                    <p class="text-sm">您現在可以點擊地圖上的任一<span class="font-semibold">村里區塊</span>，來檢視更詳細的投票數據與歷史趨勢。</p>
+                </div>
+            </div>
+
             <div class="bg-gray-50 p-4 rounded-lg shadow-inner">
                 <h3 class="font-bold text-gray-700 mb-2">選區數據總覽 (${yearSelector.selectedOptions[0].text})</h3>
                 <div class="space-y-2 text-sm">
