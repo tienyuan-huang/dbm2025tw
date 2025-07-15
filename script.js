@@ -1,14 +1,14 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 38.0.0
+ * @version 40.0.0
  * @date 2025-07-16
  * 主要改進：
- * 1.  **[新增]** 歷史趨勢圖表新增暗色模式 (Dark Mode) 適應性，會自動根據系統設定切換顏色主題。
- * 2.  **[修改]** `renderHistoricalChart` 函數，加入偵測與切換邏輯，確保圖表在暗色模式下的可讀性。
+ * 1.  **[修正]** 歷史趨勢圖表的文字、數字與座標線顏色固定為深色，以確保在淺色背景下的閱讀清晰度。
+ * 2.  **[修改]** `renderHistoricalChart` 函數，移除顏色對系統模式的偵測，全面採用固定的高對比配色。
  */
 
-console.log('Running script.js version 38.0.0 with dark mode support for charts.');
+console.log('Running script.js version 40.0.0 with fixed chart text and line colors.');
 
 // --- 全域變數與設定 ---
 
@@ -1243,12 +1243,11 @@ function renderHistoricalChart(chartData) {
         return;
     }
 
-    // --- 【新增】暗色模式偵測與顏色設定 ---
-    const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)';
-    const textColor = isDarkMode ? '#E5E7EB' : '#333';
-    const subtitleColor = isDarkMode ? '#9CA3AF' : '#666';
-    const backgroundColor = isDarkMode ? '#1F2937' : '#f8f9fa';
+    // --- 【修正】顏色設定，確保在所有模式下都清晰可見 ---
+    const gridColor = 'rgba(0, 0, 0, 0.1)'; // 固定為淺灰色格線
+    const textColor = '#333'; // 固定為深灰色文字
+    const subtitleColor = '#666'; // 固定為中灰色副標題
+    const backgroundColor = '#f8f9fa'; // 固定為淺灰色背景
 
     container.innerHTML = '<canvas id="village-historical-chart" style="border-radius: 4px;"></canvas>';
     const chartCanvas = document.getElementById('village-historical-chart');
