@@ -1,14 +1,14 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 37.0.0
+ * @version 38.0.0
  * @date 2025-07-16
  * 主要改進：
- * 1.  **[新增]** 在「選區總覽」分頁加入操作提示，引導使用者點擊地圖上的村里。
- * 2.  **[修改]** `renderDistrictOverview` 函數，將新的提示框整合至 UI 中。
+ * 1.  **[新增]** 歷史趨勢圖表新增暗色模式 (Dark Mode) 適應性，會自動根據系統設定切換顏色主題。
+ * 2.  **[修改]** `renderHistoricalChart` 函數，加入偵測與切換邏輯，確保圖表在暗色模式下的可讀性。
  */
 
-console.log('Running script.js version 37.0.0 with added user guidance.');
+console.log('Running script.js version 38.0.0 with dark mode support for charts.');
 
 // --- 全域變數與設定 ---
 
@@ -654,7 +654,7 @@ function renderDistrictOverview(districtName) {
         <div class="p-4 space-y-4">
             <h2 class="text-2xl font-bold text-gray-800">${districtName}</h2>
             
-            <!-- 【新增】操作提示 -->
+            <!-- 操作提示 -->
             <div class="bg-sky-100 border-l-4 border-sky-500 text-sky-800 p-4 rounded-md flex items-start space-x-3" role="alert">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1242,8 +1242,19 @@ function renderHistoricalChart(chartData) {
         container.innerHTML = '<p class="text-center text-gray-500 pt-12">此村里沒有足夠的歷史資料可供分析。</p>';
         return;
     }
-    container.innerHTML = '<canvas id="village-historical-chart" style="background-color: #f8f9fa; border-radius: 4px;"></canvas>';
-    const ctx = document.getElementById('village-historical-chart').getContext('2d');
+
+    // --- 【新增】暗色模式偵測與顏色設定 ---
+    const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)';
+    const textColor = isDarkMode ? '#E5E7EB' : '#333';
+    const subtitleColor = isDarkMode ? '#9CA3AF' : '#666';
+    const backgroundColor = isDarkMode ? '#1F2937' : '#f8f9fa';
+
+    container.innerHTML = '<canvas id="village-historical-chart" style="border-radius: 4px;"></canvas>';
+    const chartCanvas = document.getElementById('village-historical-chart');
+    chartCanvas.style.backgroundColor = backgroundColor;
+    
+    const ctx = chartCanvas.getContext('2d');
     if (villageHistoricalChart) villageHistoricalChart.destroy();
     
     const subtitleText = '註：圖表包含縣市長選舉資料(菱形點◆)以供參考，其選舉制度與當前分析類型不同。';
@@ -1254,20 +1265,28 @@ function renderHistoricalChart(chartData) {
         options: {
             responsive: true, maintainAspectRatio: false,
             plugins: {
-                title: { display: true, text: `歷年綜合投票趨勢分析` },
+                title: { display: true, text: `歷年綜合投票趨勢分析`, color: textColor },
                 subtitle: {
                     display: chartData.showMayorNote,
                     text: subtitleText,
-                    color: '#666',
+                    color: subtitleColor,
                     font: { size: 11 },
                     padding: { bottom: 10 }
                 },
                 tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(2) + '%' : 'N/A'}` } },
-                legend: { labels: { color: '#333' } }
+                legend: { labels: { color: textColor } }
             },
             scales: {
-                x: { ticks: { color: '#333' } },
-                y: { beginAtZero: true, title: { display: true, text: '催票率 (%)', color: '#333' }, ticks: { callback: v => v + '%', color: '#333' } }
+                x: { 
+                    ticks: { color: textColor },
+                    grid: { color: gridColor }
+                },
+                y: { 
+                    beginAtZero: true, 
+                    title: { display: true, text: '催票率 (%)', color: textColor }, 
+                    ticks: { callback: v => v + '%', color: textColor },
+                    grid: { color: gridColor }
+                }
             }
         }
     });
