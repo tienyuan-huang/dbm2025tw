@@ -1,15 +1,15 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 34.0.0
- * @date 2025-07-13
+ * @version 36.0.0
+ * @date 2025-07-15
  * 主要改進：
- * 1.  **[修復]** 在村里詳情頁面，為第二高票的候選人補上催票率計算與顯示。
- * 2.  **[修復]** 修正計算村里搖擺次數的邏輯，使其能正確判斷政黨輪替，並在地圖上繪製出高度搖擺區的黃色外框。
- * 3.  保持原有的 2012 年資料處理、資料讀取彈性等功能不變。
+ * 1.  **[新增]** 將選票流動分析功能擴展至村里層級，可在村里詳情頁面進行比較。
+ * 2.  **[修改]** `renderVillageDetails` 函數，加入村里級的分析UI與結果呈現。
+ * 3.  **[優化]** 村里級分析直接使用預載入的歷史資料，提升效能。
  */
 
-console.log('Running script.js version 34.0.0 with fixes for swing districts and second place turnout rate.');
+console.log('Running script.js version 36.0.0 with village-level vote flow analysis.');
 
 // --- 全域變數與設定 ---
 
@@ -650,11 +650,12 @@ function renderDistrictOverview(districtName) {
         winnerDisplayText = `${winnerName} (${winnerParty})`;
     }
 
-    const html = `
+    // --- 主要內容 HTML ---
+    const overviewHtml = `
         <div class="p-4 space-y-4">
             <h2 class="text-2xl font-bold text-gray-800">${districtName}</h2>
             <div class="bg-gray-50 p-4 rounded-lg shadow-inner">
-                <h3 class="font-bold text-gray-700 mb-2">選區數據總覽</h3>
+                <h3 class="font-bold text-gray-700 mb-2">選區數據總覽 (${yearSelector.selectedOptions[0].text})</h3>
                 <div class="space-y-2 text-sm">
                     <div class="flex justify-between items-center">
                         <span class="text-gray-600">${(currentElectionCategory === 'party') ? '最高票政黨' : '當選人'}</span>
@@ -676,8 +677,38 @@ function renderDistrictOverview(districtName) {
             </div>
         </div>
     `;
-    container.innerHTML = html;
+    
+    // --- 選票流動分析介面 HTML ---
+    const analysisUIHtml = `
+        <div class="p-4 mt-2 pt-6 border-t border-gray-200">
+            <h3 class="text-xl font-bold text-gray-800 mb-3">選區層級 選票流動分析</h3>
+            <p class="text-sm text-gray-600 mb-4">
+                比較本次選舉與過去的差異，觀察主要政黨催票率的變化，以及選票可能的流向（流向對手、或變為不投票）。
+            </p>
+            <div class="bg-gray-50 p-4 rounded-lg shadow-inner space-y-3">
+                <div>
+                    <label for="compare-year-selector" class="block text-sm font-medium text-gray-700 mb-1">與...比較</label>
+                    <select id="compare-year-selector" class="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                        <!-- 選項將由 JavaScript 動態生成 -->
+                    </select>
+                </div>
+                <button id="analyze-flow-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition duration-150 ease-in-out flex items-center justify-center">
+                    <svg id="analyze-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span id="analyze-btn-text">分析流動</span>
+                </button>
+            </div>
+            <div id="vote-flow-results-container" class="mt-4">
+                <!-- 分析結果將顯示於此 -->
+            </div>
+        </div>
+    `;
 
+    container.innerHTML = overviewHtml + analysisUIHtml;
+
+    // 渲染總覽圖表
     if (districtChart) districtChart.destroy();
     const ctx = document.getElementById('district-chart').getContext('2d');
     districtChart = new Chart(ctx, {
@@ -696,27 +727,42 @@ function renderDistrictOverview(districtName) {
             plugins: { legend: { display: false }, title: { display: false } }
         }
     });
+
+    // 填充比較年份的下拉選單
+    const compareYearSelector = document.getElementById('compare-year-selector');
+    const currentYear = yearSelector.value;
+    const availableYears = Object.keys(dataSources[currentElectionCategory].years)
+        .filter(y => y < currentYear)
+        .sort((a, b) => b - a);
+    
+    if (availableYears.length > 0) {
+        compareYearSelector.innerHTML = availableYears.map(y => `<option value="${y}">${dataSources[currentElectionCategory].years[y].name}</option>`).join('');
+    } else {
+        compareYearSelector.innerHTML = '<option value="">無更早年份可比較</option>';
+        document.getElementById('analyze-flow-btn').disabled = true;
+    }
+    
+    // 綁定分析按鈕事件
+    document.getElementById('analyze-flow-btn').addEventListener('click', handleDistrictVoteFlowAnalysis);
 }
+
 
 async function renderVillageDetails(village) {
     const container = tabContents[4];
-    const { fullName, districtName, electorate, total_votes, candidates, reversalCount } = village;
+    const { geo_key, fullName, districtName, electorate, total_votes, candidates, reversalCount } = village;
     const nonVoterRate = electorate > 0 ? ((electorate - total_votes) / electorate * 100).toFixed(2) : 0;
     const turnoutRate = electorate > 0 ? (total_votes / electorate * 100).toFixed(2) : 0;
-    const existingAnnotation = annotations[village.geo_key]?.note || '';
+    const existingAnnotation = annotations[geo_key]?.note || '';
     const districtTotalElectorate = districtResults[districtName]?.electorate || 0;
     const villageElectorateProportion = districtTotalElectorate > 0 ? (electorate / districtTotalElectorate * 100).toFixed(2) : 0;
     
-    // 定義第一、二高票
     const firstPlace = candidates[0];
     const secondPlace = candidates[1] || { name: '無', votes: 0, party: 'N/A' };
     
-    // 計算催票率
     const firstPlaceCallRate = electorate > 0 ? (firstPlace.votes / electorate * 100).toFixed(2) : 0;
-    // *** FIX: 計算並新增第二高票的催票率 ***
     const secondPlaceCallRate = electorate > 0 ? (secondPlace.votes / electorate * 100).toFixed(2) : 0;
 
-    const html = `
+    const mainInfoHtml = `
         <div class="p-4">
             <h3 class="text-xl font-bold text-gray-800">${fullName}</h3>
             <p class="text-sm text-gray-500 mb-4">所屬選區: ${districtName}</p>
@@ -738,7 +784,6 @@ async function renderVillageDetails(village) {
                 <p class="font-bold text-red-800">第二高票資訊</p>
                 <div class="flex justify-between items-center text-sm text-red-800"><span>${(currentElectionCategory === 'party') ? '政黨' : '候選人'}</span><span class="font-semibold">${secondPlace.name} (${secondPlace.party})</span></div>
                 <div class="flex justify-between items-center text-sm text-red-800"><span>得票數</span><span class="font-semibold">${secondPlace.votes.toLocaleString()} 票</span></div>
-                <!-- *** FIX: 新增第二高票的催票率顯示 *** -->
                 <div class="flex justify-between items-center text-sm text-red-800"><span>催票率</span><span class="font-semibold">${secondPlaceCallRate}%</span></div>
             </div>` : ''}
             <div class="mt-4 h-64"><canvas id="village-vote-chart"></canvas></div>
@@ -750,6 +795,34 @@ async function renderVillageDetails(village) {
                  </div>
             </div>
         </div>
+    `;
+    
+    // --- 【新增】村里級選票流動分析介面 HTML ---
+    const villageAnalysisUIHtml = `
+        <div class="p-4 mt-2 pt-6 border-t-2 border-dashed border-gray-300">
+            <h3 class="text-xl font-bold text-gray-800 mb-3">村里層級 選票流動分析</h3>
+            <div class="bg-gray-50 p-4 rounded-lg shadow-inner space-y-3">
+                <div>
+                    <label for="village-compare-year-selector" class="block text-sm font-medium text-gray-700 mb-1">與...比較</label>
+                    <select id="village-compare-year-selector" class="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                        <!-- 選項將由 JavaScript 動態生成 -->
+                    </select>
+                </div>
+                <button id="village-analyze-flow-btn" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-md transition duration-150 ease-in-out flex items-center justify-center">
+                    <svg id="village-analyze-spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span id="village-analyze-btn-text">分析此村里流動</span>
+                </button>
+            </div>
+            <div id="village-vote-flow-results-container" class="mt-4">
+                <!-- 村里分析結果將顯示於此 -->
+            </div>
+        </div>
+    `;
+
+    const annotationHtml = `
         <div class="p-4 border-t border-gray-200 bg-gray-50">
              <h3 class="text-lg font-bold text-gray-800 mb-2">我的標註</h3>
              <textarea id="annotation-input" class="w-full p-2 border border-gray-300 rounded-md" rows="3" placeholder="在此新增對這個村里的註解...">${existingAnnotation}</textarea>
@@ -764,10 +837,12 @@ async function renderVillageDetails(village) {
             <div id="annotation-list" class="max-h-40 overflow-y-auto bg-white rounded p-2"></div>
         </div>
     `;
-    container.innerHTML = html;
+
+    container.innerHTML = mainInfoHtml + villageAnalysisUIHtml + annotationHtml;
     
-    document.getElementById('save-annotation-btn').addEventListener('click', () => saveAnnotation(village.geo_key, village.fullName));
-    document.getElementById('delete-annotation-btn').addEventListener('click', () => deleteAnnotation(village.geo_key));
+    // --- 綁定事件與渲染圖表 ---
+    document.getElementById('save-annotation-btn').addEventListener('click', () => saveAnnotation(geo_key, fullName));
+    document.getElementById('delete-annotation-btn').addEventListener('click', () => deleteAnnotation(geo_key));
     document.getElementById('export-csv-btn').addEventListener('click', exportToCSV);
     document.getElementById('export-kml-btn').addEventListener('click', exportToKML);
     renderAnnotationList();
@@ -786,12 +861,282 @@ async function renderVillageDetails(village) {
         options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false }, title: { display: true, text: '此村里得票分佈' } } }
     });
 
-    const historicalChartData = processHistoricalData(village.geo_key, currentElectionCategory);
+    const historicalChartData = processHistoricalData(geo_key, currentElectionCategory);
     renderHistoricalChart(historicalChartData);
+    
+    // --- 【新增】填充村里級比較年份選單並綁定事件 ---
+    const villageCompareYearSelector = document.getElementById('village-compare-year-selector');
+    const currentYear = yearSelector.value;
+    const availableYears = Object.keys(dataSources[currentElectionCategory].years)
+        .filter(y => y < currentYear && allVillageHistoricalPartyPercentages[geo_key]?.[currentElectionCategory]?.[y])
+        .sort((a, b) => b - a);
+    
+    if (availableYears.length > 0) {
+        villageCompareYearSelector.innerHTML = availableYears.map(y => `<option value="${y}">${dataSources[currentElectionCategory].years[y].name}</option>`).join('');
+    } else {
+        villageCompareYearSelector.innerHTML = '<option value="">無更早年份可比較</option>';
+        document.getElementById('village-analyze-flow-btn').disabled = true;
+    }
+    
+    document.getElementById('village-analyze-flow-btn').addEventListener('click', () => handleVillageVoteFlowAnalysis(geo_key));
+}
+
+// --- 選票流動分析模組 ---
+
+/**
+ * 【選區層級】輔助函數：處理單次選舉的原始數據。
+ */
+function processElectionDataForFlow(voteDataRows, filterDistrict = null) {
+    const villageAggregates = {};
+    const districtIdentifier = dataSources[currentElectionCategory].districtIdentifier;
+
+    voteDataRows.forEach(row => {
+        if (filterDistrict && row[districtIdentifier] !== filterDistrict) return;
+        const geo_key = row.geo_key || row.VILLCODE;
+        if (!geo_key) return;
+
+        if (!villageAggregates[geo_key]) {
+            villageAggregates[geo_key] = {
+                electorate: row.electorate || 0,
+                total_votes: row.total_votes || 0,
+                kmtVotes: 0, dppVotes: 0, otherVotes: 0,
+            };
+        }
+        if (row.party_name === KMT_PARTY_NAME) villageAggregates[geo_key].kmtVotes += row.votes || 0;
+        else if (row.party_name === DPP_PARTY_NAME) villageAggregates[geo_key].dppVotes += row.votes || 0;
+        else villageAggregates[geo_key].otherVotes += row.votes || 0;
+    });
+
+    const finalResult = { kmtVotes: 0, dppVotes: 0, otherVotes: 0, totalElectorate: 0, totalVotesCast: 0 };
+    for (const key in villageAggregates) {
+        const v = villageAggregates[key];
+        finalResult.kmtVotes += v.kmtVotes;
+        finalResult.dppVotes += v.dppVotes;
+        finalResult.otherVotes += v.otherVotes;
+        finalResult.totalElectorate += v.electorate;
+        finalResult.totalVotesCast += v.total_votes;
+    }
+    return finalResult;
+}
+
+/**
+ * 【選區層級】主要分析函數
+ */
+function analyzeDistrictVoteFlow(dataT1, dataT2, districtName) {
+    const electionT1 = processElectionDataForFlow(dataT1, districtName);
+    const electionT2 = processElectionDataForFlow(dataT2, districtName);
+
+    const calculateRates = (electionData) => {
+        const { kmtVotes, dppVotes, otherVotes, totalElectorate, totalVotesCast } = electionData;
+        if (totalElectorate === 0) return { kmtTurnoutRate: 0, dppTurnoutRate: 0, otherTurnoutRate: 0, nonVoterRate: 0, summary: electionData };
+        return {
+            kmtTurnoutRate: kmtVotes / totalElectorate,
+            dppTurnoutRate: dppVotes / totalElectorate,
+            otherTurnoutRate: otherVotes / totalElectorate,
+            nonVoterRate: (totalElectorate - totalVotesCast) / totalElectorate,
+            summary: electionData,
+        };
+    };
+
+    const analysisT1 = calculateRates(electionT1);
+    const analysisT2 = calculateRates(electionT2);
+
+    const flow = {
+        kmtTurnoutChange: analysisT2.kmtTurnoutRate - analysisT1.kmtTurnoutRate,
+        dppTurnoutChange: analysisT2.dppTurnoutRate - analysisT1.dppTurnoutRate,
+        otherTurnoutChange: analysisT2.otherTurnoutRate - analysisT1.otherTurnoutRate,
+        nonVoterChange: analysisT2.nonVoterRate - analysisT1.nonVoterRate,
+    };
+    return { t1: analysisT1, t2: analysisT2, flow: flow };
+}
+
+/**
+ * 【村里層級】主要分析函數
+ */
+function analyzeVillageVoteFlow(geoKey, yearT1, yearT2) {
+    const villageHistory = allVillageHistoricalPartyPercentages[geoKey]?.[currentElectionCategory];
+    if (!villageHistory) return null;
+
+    const dataT1 = villageHistory[yearT1];
+    const dataT2 = villageHistory[yearT2];
+
+    if (!dataT1 || !dataT2) return null;
+
+    const calculateRates = (data) => {
+        const { KMT, DPP, Other, electorate, total_votes } = data;
+        const summary = { kmtVotes: KMT, dppVotes: DPP, otherVotes: Other, totalElectorate: electorate, totalVotesCast: total_votes };
+        if (electorate === 0) return { kmtTurnoutRate: 0, dppTurnoutRate: 0, otherTurnoutRate: 0, nonVoterRate: 0, summary };
+        return {
+            kmtTurnoutRate: KMT / electorate,
+            dppTurnoutRate: DPP / electorate,
+            otherTurnoutRate: Other / electorate,
+            nonVoterRate: (electorate - total_votes) / electorate,
+            summary,
+        };
+    };
+    
+    const analysisT1 = calculateRates(dataT1);
+    const analysisT2 = calculateRates(dataT2);
+
+    const flow = {
+        kmtTurnoutChange: analysisT2.kmtTurnoutRate - analysisT1.kmtTurnoutRate,
+        dppTurnoutChange: analysisT2.dppTurnoutRate - analysisT1.dppTurnoutRate,
+        otherTurnoutChange: analysisT2.otherTurnoutRate - analysisT1.otherTurnoutRate,
+        nonVoterChange: analysisT2.nonVoterRate - analysisT1.nonVoterRate,
+    };
+    
+    return { t1: analysisT1, t2: analysisT2, flow: flow };
 }
 
 
-// --- 以下為既有輔助函式，部分已修改 ---
+/**
+ * 【選區層級】處理選票流動分析的事件。
+ */
+async function handleDistrictVoteFlowAnalysis() {
+    const analyzeBtn = document.getElementById('analyze-flow-btn');
+    const btnText = document.getElementById('analyze-btn-text');
+    const spinner = document.getElementById('analyze-spinner');
+    const resultsContainer = document.getElementById('vote-flow-results-container');
+    
+    const compareYear = document.getElementById('compare-year-selector').value;
+    const currentYear = yearSelector.value;
+    const districtName = districtSelector.value;
+
+    if (!compareYear) { showMessageBox('請選擇一個要比較的年份。'); return; }
+
+    analyzeBtn.disabled = true;
+    btnText.textContent = '分析中...';
+    spinner.classList.remove('hidden');
+    resultsContainer.innerHTML = '<p class="text-center text-gray-500 animate-pulse">正在載入比較年份的資料並進行分析...</p>';
+
+    try {
+        const compareSource = dataSources[currentElectionCategory].years[compareYear];
+        const dataT1 = await getVoteData(`${currentElectionCategory}_${compareYear}`, compareSource.path);
+        const currentSource = dataSources[currentElectionCategory].years[currentYear];
+        const dataT2 = await getVoteData(`${currentElectionCategory}_${currentYear}`, currentSource.path);
+        const analysisResult = analyzeDistrictVoteFlow(dataT1, dataT2, districtName);
+        renderVoteFlowResults(analysisResult, compareYear, currentYear, 'vote-flow-results-container');
+    } catch (error) {
+        console.error('選區層級選票流動分析時發生錯誤:', error);
+        resultsContainer.innerHTML = '<p class="text-center text-red-500">分析失敗，請檢查主控台中的錯誤訊息。</p>';
+    } finally {
+        analyzeBtn.disabled = false;
+        btnText.textContent = '分析流動';
+        spinner.classList.add('hidden');
+    }
+}
+
+/**
+ * 【村里層級】處理選票流動分析的事件。
+ */
+async function handleVillageVoteFlowAnalysis(geoKey) {
+    const analyzeBtn = document.getElementById('village-analyze-flow-btn');
+    const btnText = document.getElementById('village-analyze-btn-text');
+    const spinner = document.getElementById('village-analyze-spinner');
+    const resultsContainer = document.getElementById('village-vote-flow-results-container');
+    
+    const compareYear = document.getElementById('village-compare-year-selector').value;
+    const currentYear = yearSelector.value;
+
+    if (!compareYear) { showMessageBox('請選擇一個要比較的年份。'); return; }
+
+    analyzeBtn.disabled = true;
+    btnText.textContent = '分析中...';
+    spinner.classList.remove('hidden');
+    resultsContainer.innerHTML = '<p class="text-center text-gray-500 animate-pulse">分析中...</p>';
+
+    // 使用 setTimeout 模擬非同步感，讓 UI 得以更新
+    setTimeout(() => {
+        try {
+            const analysisResult = analyzeVillageVoteFlow(geoKey, compareYear, currentYear);
+            renderVoteFlowResults(analysisResult, compareYear, currentYear, 'village-vote-flow-results-container');
+        } catch (error) {
+            console.error('村里層級選票流動分析時發生錯誤:', error);
+            resultsContainer.innerHTML = '<p class="text-center text-red-500">分析失敗，請檢查主控台中的錯誤訊息。</p>';
+        } finally {
+            analyzeBtn.disabled = false;
+            btnText.textContent = '分析此村里流動';
+            spinner.classList.add('hidden');
+        }
+    }, 100); // 短暫延遲以確保 spinner 顯示
+}
+
+
+/**
+ * 將選票流動分析結果渲染成 HTML。
+ * @param {Object} result - 分析函數的回傳結果。
+ * @param {string} yearT1 - 基準年份。
+ * @param {string} yearT2 - 比較年份。
+ * @param {string} containerId - 要渲染結果的容器 ID。
+ */
+function renderVoteFlowResults(result, yearT1, yearT2, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    if (!result) {
+        container.innerHTML = '<p class="text-center text-red-500">無法生成分析報告，資料有誤或不完整。</p>';
+        return;
+    }
+
+    const toPercent = (num) => (num * 100).toFixed(2) + '%';
+    const toPercentChange = (num) => {
+        const value = (num * 100).toFixed(2);
+        if (num > 0.0001) return `<span class="text-red-600 font-semibold">+${value}%</span>`;
+        if (num < -0.0001) return `<span class="text-green-600 font-semibold">${value}%</span>`;
+        return `<span>${value}%</span>`;
+    };
+
+    const html = `
+        <div class="overflow-x-auto">
+            <table class="min-w-full bg-white border border-gray-200 text-sm">
+                <thead class="bg-gray-100">
+                    <tr>
+                        <th class="py-2 px-3 border-b text-left font-semibold text-gray-700">指標</th>
+                        <th class="py-2 px-3 border-b text-center font-semibold text-gray-700">${yearT1}</th>
+                        <th class="py-2 px-3 border-b text-center font-semibold text-gray-700">${yearT2}</th>
+                        <th class="py-2 px-3 border-b text-center font-semibold text-gray-700">變化量</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-600">
+                    <tr>
+                        <td class="py-2 px-3 border-b font-medium">國民黨催票率</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercent(result.t1.kmtTurnoutRate)}</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercent(result.t2.kmtTurnoutRate)}</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercentChange(result.flow.kmtTurnoutChange)}</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 px-3 border-b font-medium">民進黨催票率</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercent(result.t1.dppTurnoutRate)}</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercent(result.t2.dppTurnoutRate)}</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercentChange(result.flow.dppTurnoutChange)}</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 px-3 border-b font-medium">其他政黨催票率</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercent(result.t1.otherTurnoutRate)}</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercent(result.t2.otherTurnoutRate)}</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercentChange(result.flow.otherTurnoutChange)}</td>
+                    </tr>
+                    <tr class="bg-gray-50">
+                        <td class="py-2 px-3 border-b font-medium">未投票率</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercent(result.t1.nonVoterRate)}</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercent(result.t2.nonVoterRate)}</td>
+                        <td class="py-2 px-3 border-b text-center">${toPercentChange(result.flow.nonVoterChange)}</td>
+                    </tr>
+                </tbody>
+                <tfoot class="bg-gray-100 text-xs text-gray-500">
+                    <tr>
+                        <td colspan="4" class="py-2 px-3 text-center">
+                            註：紅色 <span class="text-red-600">(+)</span> 代表增加，綠色 <span class="text-green-600">(-)</span> 代表減少。
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    `;
+    container.innerHTML = html;
+}
+
+
+// --- 以下為既有輔助函式 ---
 
 function processHistoricalData(geoKey, category) {
     const MAYORAL_YEARS = ['2010', '2014', '2018', '2022'];
@@ -844,7 +1189,6 @@ function processHistoricalData(geoKey, category) {
     return { labels, datasets, showMayorNote, dataAvailable: true };
 }
 
-// *** FIX: 修正計算搖擺次數的邏輯 ***
 function calculateAttitudeReversals(historicalData) {
     if (!historicalData) return 0;
     const years = Object.keys(historicalData).sort();
@@ -857,24 +1201,20 @@ function calculateAttitudeReversals(historicalData) {
         const yearData = historicalData[year];
         if (!yearData) return;
 
-        // 直接使用匯總好的 KMT 和 DPP 總票數進行比較
         const kmtVotes = yearData.KMT || 0;
         const dppVotes = yearData.DPP || 0;
 
         let currentLeadingParty = null;
-        // 只有在 KMT 和 DPP 票數不相等時才確定領先者
         if (kmtVotes > dppVotes) {
             currentLeadingParty = KMT_PARTY_NAME;
         } else if (dppVotes > kmtVotes) {
             currentLeadingParty = DPP_PARTY_NAME;
         }
 
-        // 如果這次和上次的領先政黨都存在，且兩者不同，則計為一次反轉
         if (previousLeadingParty && currentLeadingParty && currentLeadingParty !== previousLeadingParty) {
             reversalCount++;
         }
         
-        // 更新上一次的領先政黨
         if (currentLeadingParty) {
             previousLeadingParty = currentLeadingParty;
         }
