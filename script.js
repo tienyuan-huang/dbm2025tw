@@ -1,18 +1,21 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 42.0.0
- * @date 2025-07-17
+ * @version 44.0.0
+ * @date 2025-07-18
  * 主要改進：
- * 1.  **[優化]** 將選區的複選操作從 <select multiple> 改為對行動裝置更友善的 Checkbox (勾選框) 列表。
- * 2.  **[新增]** 在選區勾選列表中，新增「全選」與「取消全選」按鈕，提升操作效率。
- * 3.  **[新增]** 新增「確認選區並檢視地圖」按鈕，讓使用者在完成勾選後，主動觸發地圖更新。
- * 4.  **[新增]** 圖層控制開關，可分別顯示/隱藏不同顏色分類（藍、綠、其他、激戰）的村里。
- * 5.  **[新增]** 地圖選項開關，可選擇是否在地圖放大時顯示村里名稱。
- * 6.  **[優化]** 資料匯出功能 (CSV/KML) 現在會匯出所有已勾選選區的村里資料。
+ * 1.  **[修改]** 更新地圖透明度規則，改為根據選舉人佔比的七個級距進行設定。
+ * 2.  **[新增]** 地圖透明度現在會根據村里選舉人數佔選區的比例動態調整，佔比越高，區塊越不透明。
+ * 3.  **[優化]** 村里名稱標籤改為黑字白邊、無背景的樣式，提升地圖可讀性。
+ * 4.  **[優化]** 將選區的複選操作從 <select multiple> 改為對行動裝置更友善的 Checkbox (勾選框) 列表。
+ * 5.  **[新增]** 在選區勾選列表中，新增「全選」與「取消全選」按鈕，提升操作效率。
+ * 6.  **[新增]** 新增「確認選區並檢視地圖」按鈕，讓使用者在完成勾選後，主動觸發地圖更新。
+ * 7.  **[新增]** 圖層控制開關，可分別顯示/隱藏不同顏色分類（藍、綠、其他、激戰）的村里。
+ * 8.  **[新增]** 地圖選項開關，可選擇是否在地圖放大時顯示村里名稱。
+ * 9.  **[優化]** 資料匯出功能 (CSV/KML) 現在會匯出所有已勾選選區的村里資料。
  */
 
-console.log('Running script.js version 42.0.0 with checkbox-based district selector and layer controls.');
+console.log('Running script.js version 44.0.0 with tiered opacity rules.');
 
 // --- 全域變數與設定 ---
 
@@ -357,7 +360,7 @@ function handleDistrictSelection() {
 async function getVoteData(cacheKey, path) { if (voteDataCache[cacheKey]) return voteDataCache[cacheKey]; try { const rows = await new Promise((resolve, reject) => { Papa.parse(path, { download: true, header: true, dynamicTyping: true, skipEmptyLines: true, complete: res => { if (res.errors.length) { console.error(`解析 ${path} 時發生錯誤:`, res.errors); resolve(res.data); } else { resolve(res.data); } }, error: err => { console.error(`下載或讀取 ${path} 時發生網路錯誤:`, err); reject(err); } }); }); voteDataCache[cacheKey] = rows; return rows; } catch (error) { console.error(`載入 ${path} 資料時發生嚴重錯誤:`, error); return []; } }
 async function loadAllWinners() { for (const category in dataSources) { const categoryData = dataSources[category]; for (const year in categoryData.years) { const source = categoryData.years[year]; const cacheKey = `${category}_${year}`; const voteDataRows = await getVoteData(cacheKey, source.path); voteDataRows.forEach(row => { const geo_key = row.geo_key || row.VILLCODE; const { party_name, candidate_name, votes, electorate, total_votes } = row; if (!geo_key || electorate === undefined || electorate === null) return; if (!allVillageHistoricalPartyPercentages[geo_key]) { allVillageHistoricalPartyPercentages[geo_key] = {}; } if (!allVillageHistoricalPartyPercentages[geo_key][category]) { allVillageHistoricalPartyPercentages[geo_key][category] = {}; } if (!allVillageHistoricalPartyPercentages[geo_key][category][year]) { allVillageHistoricalPartyPercentages[geo_key][category][year] = { KMT: 0, DPP: 0, Other: 0, electorate: 0, total_votes: 0, candidateVotes: {} }; } const villageYearData = allVillageHistoricalPartyPercentages[geo_key][category][year]; if (party_name === KMT_PARTY_NAME) villageYearData.KMT += votes || 0; else if (party_name === DPP_PARTY_NAME) villageYearData.DPP += votes || 0; else villageYearData.Other += votes || 0; const entityKey = (category === 'party') ? party_name : candidate_name; if (entityKey) { if (!villageYearData.candidateVotes[entityKey]) { villageYearData.candidateVotes[entityKey] = 0; } villageYearData.candidateVotes[entityKey] += votes || 0; } if (villageYearData.electorate === 0 && electorate > 0) villageYearData.electorate = electorate; if (villageYearData.total_votes === 0 && total_votes > 0) villageYearData.total_votes = total_votes; }); } } }
 function calculateAllVillageReversalCounts() { for (const geoKey in allVillageHistoricalPartyPercentages) { villageReversalCounts[geoKey] = {}; const allCategoriesForVillage = Object.keys(allVillageHistoricalPartyPercentages[geoKey]); for (const category of allCategoriesForVillage) { let historyToCalculate = allVillageHistoricalPartyPercentages[geoKey][category]; if (category !== 'mayor') { const mayorHistory = allVillageHistoricalPartyPercentages[geoKey]['mayor'] || {}; const combinedHistory = { ...mayorHistory, ...historyToCalculate }; historyToCalculate = combinedHistory; } villageReversalCounts[geoKey][category] = calculateAttitudeReversals(historyToCalculate); } } }
-function processVoteData(voteData) { villageResults = {}; districtResults = {}; geoKeyToDistrictMap = {}; winners = {}; const categoryData = dataSources[currentElectionCategory]; const districtIdentifier = categoryData.districtIdentifier; const districtTemp = {}; voteData.forEach((row, index) => { const districtName = row[districtIdentifier]; if (!districtName) return; if (!districtTemp[districtName]) { districtTemp[districtName] = { candidates: {}, electorate: 0, total_votes: 0, townships: new Set(), processedVillages: new Set() }; } const d = districtTemp[districtName]; const candName = (currentElectionCategory === 'party') ? row.party_name : row.candidate_name; if (!candName) return; const effectivePartyName = row.party_name; if (!d.candidates[candName]) { d.candidates[candName] = { votes: 0, party: effectivePartyName }; } d.candidates[candName].votes += row.votes || 0; if (!d.candidates[candName].party) { d.candidates[candName].party = effectivePartyName; } d.townships.add(row.township_name); const { county_name, township_name, village_name, electorate, total_votes } = row; const geo_key = row.geo_key || row.VILLCODE; if (!geo_key) return; if (electorate === undefined || electorate === null) return; if (!villageResults[geo_key]) { villageResults[geo_key] = { geo_key, fullName: `${county_name} ${township_name} ${village_name}`, districtName: districtName, electorate: electorate || 0, total_votes: total_votes || 0, candidates: [], reversalCount: villageReversalCounts[geo_key]?.[currentElectionCategory] || 0, colorCategory: 'nodata', turnoutDiff: 0, }; } villageResults[geo_key].candidates.push({ name: candName, party: effectivePartyName, votes: row.votes || 0 }); geoKeyToDistrictMap[geo_key] = districtName; if (!d.processedVillages.has(geo_key)) { d.electorate += (electorate || 0); d.total_votes += (total_votes || 0); d.processedVillages.add(geo_key); } }); Object.values(villageResults).forEach(v => { v.candidates.sort((a, b) => b.votes - a.votes); const { category, diff } = getVillageColorInfo(v); v.colorCategory = category; v.turnoutDiff = diff; }); districtResults = districtTemp; for (const districtName in districtResults) { const sorted = Object.entries(districtResults[districtName].candidates).sort((a, b) => b[1].votes - a[1].votes); if (sorted.length > 0) winners[districtName] = sorted[0][0]; } for(const district of Object.values(districtResults)) { district.searchableString = `${[...district.townships].join(' ')} ${Object.keys(district.candidates).join(' ')}`.toLowerCase(); } }
+function processVoteData(voteData) { villageResults = {}; districtResults = {}; geoKeyToDistrictMap = {}; winners = {}; const categoryData = dataSources[currentElectionCategory]; const districtIdentifier = categoryData.districtIdentifier; const districtTemp = {}; voteData.forEach((row, index) => { const districtName = row[districtIdentifier]; if (!districtName) return; if (!districtTemp[districtName]) { districtTemp[districtName] = { candidates: {}, electorate: 0, total_votes: 0, townships: new Set(), processedVillages: new Set() }; } const d = districtTemp[districtName]; const candName = (currentElectionCategory === 'party') ? row.party_name : row.candidate_name; if (!candName) return; const effectivePartyName = row.party_name; if (!d.candidates[candName]) { d.candidates[candName] = { votes: 0, party: effectivePartyName }; } d.candidates[candName].votes += row.votes || 0; if (!d.candidates[candName].party) { d.candidates[candName].party = effectivePartyName; } d.townships.add(row.township_name); const { county_name, township_name, village_name, electorate, total_votes } = row; const geo_key = row.geo_key || row.VILLCODE; if (!geo_key) return; if (electorate === undefined || electorate === null) return; if (!villageResults[geo_key]) { villageResults[geo_key] = { geo_key, fullName: `${county_name} ${township_name} ${village_name}`, districtName: districtName, electorate: electorate || 0, total_votes: total_votes || 0, candidates: [], reversalCount: villageReversalCounts[geo_key]?.[currentElectionCategory] || 0, colorCategory: 'nodata', turnoutDiff: 0, electorateProportion: 0 }; } villageResults[geo_key].candidates.push({ name: candName, party: effectivePartyName, votes: row.votes || 0 }); geoKeyToDistrictMap[geo_key] = districtName; if (!d.processedVillages.has(geo_key)) { d.electorate += (electorate || 0); d.total_votes += (total_votes || 0); d.processedVillages.add(geo_key); } }); Object.values(villageResults).forEach(v => { v.candidates.sort((a, b) => b.votes - a.votes); const { category, diff } = getVillageColorInfo(v); v.colorCategory = category; v.turnoutDiff = diff; }); districtResults = districtTemp; for (const districtName in districtResults) { const sorted = Object.entries(districtResults[districtName].candidates).sort((a, b) => b[1].votes - a[1].votes); if (sorted.length > 0) winners[districtName] = sorted[0][0]; } for(const district of Object.values(districtResults)) { district.searchableString = `${[...district.townships].join(' ')} ${Object.keys(district.candidates).join(' ')}`.toLowerCase(); } Object.values(villageResults).forEach(village => { const district = districtResults[village.districtName]; if (district && district.electorate > 0) { village.electorateProportion = village.electorate / district.electorate; } else { village.electorateProportion = 0; } }); }
 
 // --- UI 更新與渲染 ---
 
@@ -490,9 +493,29 @@ function getFeatureStyle(feature) {
     const village = villageResults[feature.properties.VILLCODE];
     let fillColor = '#cccccc';
     let colorCategory = 'nodata';
-    
+    let proportionBasedOpacity = 0.3; // 預設最低透明度
+
     if (village) {
         colorCategory = village.colorCategory;
+        
+        // 【修改】根據選舉人佔比的分級規則設定不透明度 (Opacity)
+        const proportion = village.electorateProportion || 0;
+        if (proportion > 0.03) {
+            proportionBasedOpacity = 0.9;
+        } else if (proportion > 0.025) { // 2.5% ~ 3%
+            proportionBasedOpacity = 0.8;
+        } else if (proportion > 0.02) {  // 2% ~ 2.5%
+            proportionBasedOpacity = 0.7;
+        } else if (proportion > 0.015) { // 1.5% ~ 2%
+            proportionBasedOpacity = 0.6;
+        } else if (proportion > 0.01) {  // 1% ~ 1.5%
+            proportionBasedOpacity = 0.5;
+        } else if (proportion > 0.005) { // 0.5% ~ 1%
+            proportionBasedOpacity = 0.4;
+        } else { // <= 0.5%
+            proportionBasedOpacity = 0.3;
+        }
+
         switch (colorCategory) {
             case 'kmt': fillColor = '#3b82f6'; break;
             case 'dpp': fillColor = '#16a34a'; break;
@@ -501,7 +524,9 @@ function getFeatureStyle(feature) {
         }
     }
     
-    let fillOpacity = 0.7;
+    let fillOpacity = proportionBasedOpacity;
+    
+    // 如果圖層被關閉，則強制完全透明
     if (
         (colorCategory === 'kmt' && !layerVisibility.kmt) ||
         (colorCategory === 'dpp' && !layerVisibility.dpp) ||
@@ -537,8 +562,11 @@ function updateVillageNameLayer() {
                     icon: L.divIcon({
                         className: 'village-label',
                         html: village.fullName.split(' ').pop(),
-                        iconSize: [80, 12]
-                    })
+                        // 【修改】移除固定的 iconSize，讓 CSS 控制外觀
+                    }),
+                    // 確保標籤本身不可互動，避免遮擋地圖點擊
+                    interactive: false,
+                    bubblingMouseEvents: false
                 });
                 villageNameLayer.addLayer(label);
             }
