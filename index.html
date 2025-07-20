@@ -34,17 +34,18 @@
             z-index: 10;
         }
         
-        /* 村里名稱標籤樣式 */
+        /* 【修改】村里名稱標籤樣式：改為黑字白邊、無背景 */
         .village-label {
-            background: rgba(255, 255, 255, 0.7);
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            padding: 2px 4px;
-            font-size: 10px;
-            color: #333;
+            background: transparent;
+            border: none;
+            padding: 0;
+            font-size: 12px;
+            color: #000;
             white-space: nowrap;
-            text-shadow: 1px 1px 2px white;
+            /* 透過在多個方向設定白色文字陰影，製造出清晰的白色外框效果 */
+            text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff, -2px 0 0 #fff, 2px 0 0 #fff, 0 -2px 0 #fff, 0 2px 0 #fff;
             font-weight: bold;
+            pointer-events: none; /* 確保標籤不會攔截滑鼠點擊事件 */
         }
 
         /* 讓滾動條更好看 */
@@ -353,7 +354,7 @@
                             </button>
                         </div>
                         <div class="mt-8 pt-5 border-t border-gray-200">
-                             <h3 class="text-lg leading-6 font-medium text-gray-900">歡迎使用拉罷地圖工具 v07.17</h3>
+                             <h3 class="text-lg leading-6 font-medium text-gray-900">歡迎使用拉罷地圖工具 v07.18</h3>
                              <div class="mt-2 text-left text-sm text-gray-700 space-y-2">
                                  <p>本地圖工具旨在透過視覺化分析各選區近年選舉資料，以利規劃溝通策略與催票範圍。</p>
                                  <p class="font-semibold">請從上方選擇一種選舉類型開始分析。</p>
@@ -384,6 +385,9 @@
                                      <li><span class="pb-0.5 border-b-2 border-gray-500">標示黑色區域</span>：代表其他政黨或無黨籍候選人取得 5% 以上的催票率優勢。</li>
                                      <li><span class="pb-0.5 border-b-2 border-red-500">標示紅色區域</span>：代表主要競爭者之間，催票率差距在 5% 以內，屬於激戰區。</li>
                                  </ul>
+                                 <p class="mt-2">
+                                     <span class="font-semibold">地圖透明度</span>：村里區塊的透明度，代表該村里選舉人數佔其所屬選區的比例。區塊<span class="font-bold">越不透明</span>，代表該村里在選區內的<span class="font-bold">選舉人數佔比越高</span>。
+                                 </p>
                              </div>
                         </div>
                         <div class="mt-8 pt-5 border-t border-gray-200">
@@ -493,6 +497,9 @@
                                      <li><span class="pb-0.5 border-b-2 border-gray-500">標示黑色區域</span>：代表其他政黨或無黨籍候選人取得領先。</li>
                                      <li><span class="pb-0.5 border-b-2 border-red-500">標示紅色區域</span>：代表主要競爭者之間，催票率差距在 5% 以內，屬於激戰區。</li>
                                  </ul>
+                                  <p class="mt-2">
+                                     <span class="font-semibold">地圖透明度</span>：村里區塊的透明度，代表該村里選舉人數佔其所屬選區的比例。區塊<span class="font-bold">越不透明</span>，代表該村里在選區內的<span class="font-bold">選舉人數佔比越高</span>。
+                                 </p>
                              </div>
                         </div>
                     </div>
