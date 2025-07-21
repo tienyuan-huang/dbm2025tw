@@ -1,21 +1,15 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 44.0.0
- * @date 2025-07-18
+ * @version 46.0.0
+ * @date 2025-07-21
  * 主要改進：
- * 1.  **[修改]** 更新地圖透明度規則，改為根據選舉人佔比的七個級距進行設定。
- * 2.  **[新增]** 地圖透明度現在會根據村里選舉人數佔選區的比例動態調整，佔比越高，區塊越不透明。
- * 3.  **[優化]** 村里名稱標籤改為黑字白邊、無背景的樣式，提升地圖可讀性。
- * 4.  **[優化]** 將選區的複選操作從 <select multiple> 改為對行動裝置更友善的 Checkbox (勾選框) 列表。
- * 5.  **[新增]** 在選區勾選列表中，新增「全選」與「取消全選」按鈕，提升操作效率。
- * 6.  **[新增]** 新增「確認選區並檢視地圖」按鈕，讓使用者在完成勾選後，主動觸發地圖更新。
- * 7.  **[新增]** 圖層控制開關，可分別顯示/隱藏不同顏色分類（藍、綠、其他、激戰）的村里。
- * 8.  **[新增]** 地圖選項開關，可選擇是否在地圖放大時顯示村里名稱。
- * 9.  **[優化]** 資料匯出功能 (CSV/KML) 現在會匯出所有已勾選選區的村里資料。
+ * 1.  **[修訂]** 再次調整地圖透明度規則，將不透明度範圍設定為 20% 至 90%，以提供更佳的視覺對比。
+ * 2.  **[新增]** 新增地圖載入指示器。在載入資料與繪製圖層等耗時操作時，會顯示全螢幕遮罩與提示訊息，避免使用者誤認為程式無回應。
+ * 3.  **[優化]** 將部分耗時的函式改為非同步 (async) 處理，並加入 try/finally 區塊，確保載入指示器在任何情況下都能被正確關閉。
  */
 
-console.log('Running script.js version 44.0.0 with tiered opacity rules.');
+console.log('Running script.js version 46.0.0 with new opacity range (20%-90%).');
 
 // --- 全域變數與設定 ---
 
@@ -23,9 +17,10 @@ let map;
 let geoJsonLayer, annotationLayer, villageNameLayer;
 // DOM 元素引用
 let yearSelector, districtSelector, searchInput, clearSearchBtn, warning2012;
-// 【修改】新增選區選擇器相關的 DOM 引用
 let districtSelectorControls, confirmSelectionBtn;
 let infoToggle, infoContainer, mapContainer, collapsibleContent, toggleText, toggleIconCollapse, toggleIconExpand;
+// 【新增】載入指示器 DOM 引用
+let mapLoader;
 let stepperItems = {};
 let tabContents = {};
 let electionTypeButtons = {};
@@ -42,7 +37,7 @@ let currentGeoData = null;
 let villageResults = {};
 let districtResults = {};
 let geoKeyToDistrictMap = {};
-let currentSelectedDistricts = []; // 【修改】從單一字串改為陣列
+let currentSelectedDistricts = [];
 let currentElectionCategory = null;
 let winners = {};
 let voteDataCache = {};
@@ -50,7 +45,7 @@ let annotations = {};
 let allVillageHistoricalPartyPercentages = {};
 let villageReversalCounts = {};
 
-// 【新增】圖層可見性狀態
+// 圖層可見性狀態
 const layerVisibility = {
     kmt: true,
     dpp: true,
@@ -58,7 +53,7 @@ const layerVisibility = {
     battle: true,
     swing: true,
 };
-// 【新增】地圖選項狀態
+// 地圖選項狀態
 const mapOptions = {
     showVillageNames: false,
 };
@@ -132,18 +127,25 @@ document.addEventListener('DOMContentLoaded', async function() {
     initializeMap();
     setupEventListeners();
 
-    await loadAllWinners();
-    calculateAllVillageReversalCounts();
-    currentGeoData = await fetch(TOPOJSON_PATH).then(res => res.json()).then(topoData => topojson.feature(topoData, topoData.objects.village));
+    showLoader('正在準備核心圖資...');
+    await new Promise(resolve => setTimeout(resolve, 50));
+    try {
+        await loadAllWinners();
+        calculateAllVillageReversalCounts();
+        currentGeoData = await fetch(TOPOJSON_PATH).then(res => res.json()).then(topoData => topojson.feature(topoData, topoData.objects.village));
+    } catch (error) {
+        console.error("初始化載入核心資料時失敗:", error);
+        showMessageBox("無法載入核心圖資，請檢查網路連線或稍後再試。");
+    } finally {
+        hideLoader();
+    }
 });
 
 function initializeDOMReferences() {
     yearSelector = document.getElementById('year-selector');
-    // 【修改】指向新的 DOM 結構
     districtSelector = document.getElementById('district-selector');
     districtSelectorControls = document.getElementById('district-selector-controls');
     confirmSelectionBtn = document.getElementById('confirm-selection-btn');
-
     searchInput = document.getElementById('search-input');
     clearSearchBtn = document.getElementById('clear-search-btn');
     infoToggle = document.getElementById('info-toggle');
@@ -154,6 +156,8 @@ function initializeDOMReferences() {
     toggleIconCollapse = document.getElementById('toggle-icon-collapse');
     toggleIconExpand = document.getElementById('toggle-icon-expand');
     warning2012 = document.getElementById('warning-2012');
+    // 【新增】
+    mapLoader = document.getElementById('map-loader');
 
     for (let i = 1; i <= 4; i++) {
         stepperItems[i] = document.getElementById(`stepper-${i}`);
@@ -167,7 +171,6 @@ function initializeDOMReferences() {
         party: document.getElementById('btn-party'),
     };
     
-    // 【新增】圖層與地圖選項的 DOM 引用
     layerToggles = {
         kmt: document.getElementById('kmt-layer-toggle'),
         dpp: document.getElementById('dpp-layer-toggle'),
@@ -187,9 +190,8 @@ function initializeMap() {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
     }).addTo(map);
     annotationLayer = L.layerGroup().addTo(map);
-    villageNameLayer = L.layerGroup(); // 【新增】初始化村里名稱圖層
+    villageNameLayer = L.layerGroup();
     
-    // 【新增】監聽地圖縮放事件，以更新村里名稱顯示
     map.on('zoomend', function() {
         updateVillageNameLayer();
     });
@@ -201,7 +203,7 @@ function setupEventListeners() {
     });
     
     yearSelector.addEventListener('change', () => loadAndDisplayYear(yearSelector.value));
-    // 【修改】移除舊的事件監聽，改為監聽確認按鈕
+    // 【修改】將 handleDistrictSelection 改為 async
     confirmSelectionBtn.addEventListener('click', handleDistrictSelection);
     searchInput.addEventListener('input', handleSearch);
     clearSearchBtn.addEventListener('click', clearSearch);
@@ -212,7 +214,6 @@ function setupEventListeners() {
     stepperItems[2].addEventListener('click', () => { if (stepperItems[2].classList.contains('completed')) resetToStep(2); });
     stepperItems[3].addEventListener('click', () => { if (stepperItems[3].classList.contains('completed')) resetToStep(3); });
 
-    // 【新增】圖層與地圖選項的事件監聽
     Object.entries(layerToggles).forEach(([key, toggle]) => {
         toggle.addEventListener('change', (e) => {
             layerVisibility[key] = e.target.checked;
@@ -225,6 +226,28 @@ function setupEventListeners() {
         updateVillageNameLayer();
     });
 }
+
+// --- 【新增】載入指示器控制 ---
+function showLoader(message = '') {
+    if (mapLoader) {
+        const mainTextEl = mapLoader.querySelector('#loader-main-text');
+        const messageEl = mapLoader.querySelector('#loader-message');
+        if (message) {
+            mainTextEl.textContent = message;
+            messageEl.textContent = '';
+        } else {
+            mainTextEl.textContent = '圖資運算中，請稍候...';
+        }
+        mapLoader.classList.remove('hidden');
+    }
+}
+
+function hideLoader() {
+    if (mapLoader) {
+        mapLoader.classList.add('hidden');
+    }
+}
+
 
 // --- 步驟導覽 (Stepper) 與分頁控制 ---
 
@@ -307,28 +330,36 @@ async function loadAndDisplayYear(year) {
     const source = dataSources[currentElectionCategory].years[year];
     if (!source) return;
 
+    showLoader('正在載入與處理選舉資料...');
     Object.values(electionTypeButtons).forEach(b => b.disabled = true);
     yearSelector.disabled = true;
-    
-    const voteDataRows = await getVoteData(`${currentElectionCategory}_${year}`, source.path);
+    confirmSelectionBtn.disabled = true;
+    await new Promise(resolve => setTimeout(resolve, 50)); // 確保 UI 更新
 
-    processVoteData(voteDataRows);
-    populateDistrictFilter();
-    
-    if (geoJsonLayer) map.removeLayer(geoJsonLayer);
-    if (villageNameLayer) map.removeLayer(villageNameLayer);
-    tabContents[3].innerHTML = '';
-    tabContents[4].innerHTML = '';
-    
-    Object.values(electionTypeButtons).forEach(b => b.disabled = false);
-    yearSelector.disabled = false;
-    confirmSelectionBtn.disabled = false;
-    
-    updateStepperUI(2);
+    try {
+        const voteDataRows = await getVoteData(`${currentElectionCategory}_${year}`, source.path);
+        processVoteData(voteDataRows);
+        populateDistrictFilter();
+        
+        if (geoJsonLayer) map.removeLayer(geoJsonLayer);
+        if (villageNameLayer) map.removeLayer(villageNameLayer);
+        tabContents[3].innerHTML = '';
+        tabContents[4].innerHTML = '';
+        
+        updateStepperUI(2);
+    } catch (error) {
+        console.error("載入年份資料時發生錯誤:", error);
+        showMessageBox("載入年份資料時發生錯誤，請檢查主控台以獲取詳細資訊。");
+    } finally {
+        Object.values(electionTypeButtons).forEach(b => b.disabled = false);
+        yearSelector.disabled = false;
+        confirmSelectionBtn.disabled = false;
+        hideLoader();
+    }
 }
 
-// 【修改】由確認按鈕觸發
-function handleDistrictSelection() {
+// 【修改】改為 async function 以便使用 await
+async function handleDistrictSelection() {
     const selectedOptions = Array.from(districtSelector.querySelectorAll('input[type="checkbox"]:checked'))
                                       .map(cb => cb.value);
     
@@ -344,16 +375,26 @@ function handleDistrictSelection() {
     
     currentSelectedDistricts = selectedOptions;
 
-    if (yearSelector.value === '2012') {
-        if (geoJsonLayer) map.removeLayer(geoJsonLayer);
-        if (villageNameLayer) map.removeLayer(villageNameLayer);
-        map.setView([23.9738, 120.982], 7.5);
-    } else {
-        renderMapLayers();
+    showLoader('正在繪製地圖與總覽圖表...');
+    await new Promise(resolve => setTimeout(resolve, 50)); // 確保 UI 更新
+
+    try {
+        if (yearSelector.value === '2012') {
+            if (geoJsonLayer) map.removeLayer(geoJsonLayer);
+            if (villageNameLayer) map.removeLayer(villageNameLayer);
+            map.setView([23.9738, 120.982], 7.5);
+        } else {
+            renderMapLayers();
+        }
+        
+        renderDistrictOverview(currentSelectedDistricts);
+        switchTab(3);
+    } catch (error) {
+        console.error("處理選區選擇時發生錯誤:", error);
+        showMessageBox("處理選區資料時發生錯誤，請查看主控台以獲取詳細資訊。");
+    } finally {
+        hideLoader(); // 無論成功或失敗，都隱藏載入指示器
     }
-    
-    renderDistrictOverview(currentSelectedDistricts);
-    switchTab(3);
 }
 
 // --- 資料處理 ---
@@ -364,7 +405,6 @@ function processVoteData(voteData) { villageResults = {}; districtResults = {}; 
 
 // --- UI 更新與渲染 ---
 
-// 【重構】產生 Checkbox 列表而非 <select>
 function populateDistrictFilter(query = '') {
     const allDistricts = Object.keys(districtResults);
     const isSearchResult = query.length > 0;
@@ -381,18 +421,16 @@ function populateDistrictFilter(query = '') {
         districtsToShow = allDistricts.filter(d => RECALL_DISTRICTS.includes(d));
     }
 
-    districtSelector.innerHTML = ''; // 清空容器
-    districtSelectorControls.innerHTML = ''; // 清空控制按鈕
+    districtSelector.innerHTML = '';
+    districtSelectorControls.innerHTML = '';
 
     if (districtsToShow.length > 0) {
-        // 新增全選/取消按鈕
         districtSelectorControls.innerHTML = `
             <button id="select-all-btn" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-1 px-2 rounded">全選</button>
             <button id="deselect-all-btn" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-1 px-2 rounded">取消全選</button>
             <span id="selection-counter" class="text-xs text-gray-600 ml-auto">已選 0 項</span>
         `;
 
-        // 產生 Checkbox 列表
         districtsToShow.sort((a, b) => a.localeCompare(b, 'zh-Hant')).forEach(dName => {
             const winnerName = winners[dName] || '';
             const text = winnerName ? `${dName} (${winnerName})` : dName;
@@ -407,7 +445,6 @@ function populateDistrictFilter(query = '') {
             districtSelector.innerHTML += itemHTML;
         });
 
-        // 綁定事件
         document.getElementById('select-all-btn').addEventListener('click', () => toggleAllDistricts(true));
         document.getElementById('deselect-all-btn').addEventListener('click', () => toggleAllDistricts(false));
         districtSelector.querySelectorAll('input[type="checkbox"]').forEach(cb => {
@@ -420,7 +457,6 @@ function populateDistrictFilter(query = '') {
     }
 }
 
-// 【新增】全選/取消全選的輔助函式
 function toggleAllDistricts(checkedState) {
     districtSelector.querySelectorAll('input[type="checkbox"]').forEach(cb => {
         cb.checked = checkedState;
@@ -428,7 +464,6 @@ function toggleAllDistricts(checkedState) {
     updateSelectionCounter();
 }
 
-// 【新增】更新已選項計數的輔助函式
 function updateSelectionCounter() {
     const count = districtSelector.querySelectorAll('input[type="checkbox"]:checked').length;
     const counterEl = document.getElementById('selection-counter');
@@ -493,27 +528,29 @@ function getFeatureStyle(feature) {
     const village = villageResults[feature.properties.VILLCODE];
     let fillColor = '#cccccc';
     let colorCategory = 'nodata';
-    let proportionBasedOpacity = 0.3; // 預設最低透明度
+    let proportionBasedOpacity = 0.2; // 預設最低透明度
 
     if (village) {
         colorCategory = village.colorCategory;
         
-        // 【修改】根據選舉人佔比的分級規則設定不透明度 (Opacity)
+        // 【修訂】根據使用者要求，更新選舉人佔比的透明度規則 (最大90%, 最小20%)
         const proportion = village.electorateProportion || 0;
-        if (proportion > 0.03) {
+        if (proportion > 0.035) {         // 大於 3.5%
             proportionBasedOpacity = 0.9;
-        } else if (proportion > 0.025) { // 2.5% ~ 3%
+        } else if (proportion >= 0.03) {  // 3% ~ 3.5%
             proportionBasedOpacity = 0.8;
-        } else if (proportion > 0.02) {  // 2% ~ 2.5%
+        } else if (proportion >= 0.025) { // 2.5% ~ 3%
             proportionBasedOpacity = 0.7;
-        } else if (proportion > 0.015) { // 1.5% ~ 2%
+        } else if (proportion >= 0.02) {  // 2% ~ 2.5%
             proportionBasedOpacity = 0.6;
-        } else if (proportion > 0.01) {  // 1% ~ 1.5%
+        } else if (proportion >= 0.015) { // 1.5% ~ 2%
             proportionBasedOpacity = 0.5;
-        } else if (proportion > 0.005) { // 0.5% ~ 1%
+        } else if (proportion >= 0.01) {  // 1% ~ 1.5%
             proportionBasedOpacity = 0.4;
-        } else { // <= 0.5%
+        } else if (proportion >= 0.005) { // 0.5% ~ 1%
             proportionBasedOpacity = 0.3;
+        } else {                          // 小於 0.5%
+            proportionBasedOpacity = 0.2;
         }
 
         switch (colorCategory) {
@@ -562,9 +599,7 @@ function updateVillageNameLayer() {
                     icon: L.divIcon({
                         className: 'village-label',
                         html: village.fullName.split(' ').pop(),
-                        // 【修改】移除固定的 iconSize，讓 CSS 控制外觀
                     }),
-                    // 確保標籤本身不可互動，避免遮擋地圖點擊
                     interactive: false,
                     bubblingMouseEvents: false
                 });
