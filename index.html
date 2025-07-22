@@ -240,6 +240,15 @@
 
         <!-- 左側地圖區塊 -->
         <div id="map-container" class="w-full md:w-2/3 h-1/2 md:h-full relative transition-all duration-500 ease-in-out">
+            <!-- 【新增】圖資計算中載入指示器 -->
+            <div id="map-loader" class="absolute inset-0 bg-gray-900 bg-opacity-75 flex flex-col items-center justify-center z-30 hidden">
+                <svg class="animate-spin h-12 w-12 text-white mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p id="loader-main-text" class="text-white text-lg font-semibold">圖資運算中，請稍候...</p>
+                <p id="loader-message" class="text-white text-sm mt-2"></p>
+            </div>
             <div id="map"></div>
             <!-- 圖層控制器 -->
             <div id="legend-container" class="absolute bottom-4 left-4 bg-white bg-opacity-80 p-3 rounded-lg shadow-lg z-20 max-w-xs">
@@ -354,7 +363,7 @@
                             </button>
                         </div>
                         <div class="mt-8 pt-5 border-t border-gray-200">
-                             <h3 class="text-lg leading-6 font-medium text-gray-900">歡迎使用拉罷地圖工具 v07.18</h3>
+                             <h3 class="text-lg leading-6 font-medium text-gray-900">歡迎使用拉罷地圖工具 v07.22</h3>
                              <div class="mt-2 text-left text-sm text-gray-700 space-y-2">
                                  <p>本地圖工具旨在透過視覺化分析各選區近年選舉資料，以利規劃溝通策略與催票範圍。</p>
                                  <p class="font-semibold">請從上方選擇一種選舉類型開始分析。</p>
@@ -399,6 +408,12 @@
                                         <strong>選舉資料</strong>：
                                         <a href="https://data.gov.tw/dataset/13119" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">
                                             中央選舉委員會 - 選舉資料庫(含選舉區資料)
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <strong>人口資料</strong>：
+                                        <a href="https://segis.moi.gov.tw" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">
+                                            內政部統計處：113年12月行政區人口統計_村里
                                         </a>
                                     </li>
                                     <li>
