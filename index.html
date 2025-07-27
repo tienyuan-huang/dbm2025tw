@@ -351,13 +351,19 @@
                     <div id="tab-content-1" class="tab-content p-5">
                         <h3 class="text-xl leading-6 font-medium text-gray-900 mb-5">1. 請選擇要分析的選舉類型（滑到更下面有說明）</h3>
                         <div class="space-y-4">
-                            <!-- 【新增】罷免案分析按鈕 -->
-                            <button id="btn-recall" data-category="recall" class="election-type-btn border-red-500 hover:bg-red-50">
-                                <div>
-                                    <span class="main-text block text-red-700">罷免案分析</span>
-                                    <span class="sub-text block text-red-600">分析 2025 罷免案催票與歷史趨勢</span>
+                            <div class="relative">
+                                <button id="btn-recall" data-category="recall" class="election-type-btn border-red-500 hover:bg-red-50">
+                                    <div>
+                                        <span class="main-text block text-red-700">罷免案分析</span>
+                                        <span class="sub-text block text-red-600">分析 2025 罷免案催票與歷史趨勢</span>
+                                    </div>
+                                </button>
+                                <!-- 【新增】罷免案分析警示 -->
+                                <div id="recall-warning-tab1" class="hidden mt-2 p-3 bg-amber-50 border-l-4 border-amber-500 text-amber-800 rounded-md text-sm">
+                                    <p class="font-bold">BETA 功能提醒</p>
+                                    <p>本功能剛上線，可能有錯誤，請務必以中選會網站為主。</p>
                                 </div>
-                            </button>
+                            </div>
                             <button id="btn-legislator" data-category="legislator" class="election-type-btn">
                                 <div>
                                     <span class="main-text block">區域立委</span>
@@ -466,6 +472,8 @@
 
                     <!-- Tab 2: 篩選與設定 -->
                     <div id="tab-content-2" class="tab-content hidden p-4">
+                        <!-- 【新增】罷免案警示容器 -->
+                        <div id="recall-warning-container-2"></div>
                         <div id="warning-2012" class="hidden bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-4 rounded-md" role="alert">
                             <p class="font-bold">功能限制提醒</p>
                             <p>由於 2012 年的行政區劃與現行圖資不符，此年份的資料【無法】顯示村里級別的地圖與詳細數據。您仍然可以查看各選區的整體得票概況。</p>
