@@ -1,16 +1,14 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 55.0.0
+ * @version 56.0.0
  * @date 2025-07-27
  * 主要改進：
- * 1.  **[功能新增]** 在罷免案分析模式下，新增「本次搖擺區」圖層，用以標示與2024立委選舉結果相比發生變化的村里。
- * 2.  **[UI/UX]** 為「本次搖擺區」圖層新增漸變閃爍的視覺效果，使其在地圖上更為突出。
- * 3.  **[UI/UX]** 動態調整圖層控制器的標籤文字，以符合當前的分析模式（罷免案 vs. 一般選舉）。
- * 4.  **[邏輯優化]** 新增專門的函式來計算罷免案的單次搖擺狀態。
+ * 1.  **[UI/UX]** 在各個相關分頁中，為「罷免案分析」模式新增了醒目的警示標語，提醒使用者此為 BETA 功能。
+ * 2.  **[邏輯優化]** 將警示標語的顯示與隱藏邏輯整合，確保其僅在罷免案分析模式下出現。
  */
 
-console.log('Running script.js version 55.0.0 with single-swing analysis for recalls.');
+console.log('Running script.js version 56.0.0 with recall warning messages.');
 
 // --- 全域變數與設定 ---
 
@@ -27,6 +25,7 @@ let electionTypeButtons = {};
 let layerToggles = {};
 let mapOptionsToggles = {};
 let kmtLegendText, dppLegendText, swingLegendText;
+let recallWarningTab1;
 
 
 // 圖表實例
@@ -179,6 +178,7 @@ function initializeDOMReferences() {
     kmtLegendText = document.getElementById('kmt-legend-text');
     dppLegendText = document.getElementById('dpp-legend-text');
     swingLegendText = document.getElementById('swing-legend-text');
+    recallWarningTab1 = document.getElementById('recall-warning-tab1');
 
     for (let i = 1; i <= 4; i++) {
         stepperItems[i] = document.getElementById(`stepper-${i}`);
@@ -315,15 +315,17 @@ function resetToStep(stepIndex) {
 function selectElectionCategory(category) {
     currentElectionCategory = category;
     
-    // 更新圖例文字
-    if (category === 'recall') {
-        kmtLegendText.innerHTML = '<strong>不同意</strong>方領先';
-        dppLegendText.innerHTML = '<strong>同意</strong>方領先';
-        swingLegendText.textContent = '本次搖擺區';
-    } else {
-        kmtLegendText.textContent = '國民黨領先';
-        dppLegendText.textContent = '民進黨領先';
-        swingLegendText.textContent = '高度搖擺區';
+    // 更新圖例文字與警示
+    const isRecallMode = category === 'recall';
+    kmtLegendText.innerHTML = isRecallMode ? '<strong>不同意</strong>方領先' : '國民黨領先';
+    dppLegendText.innerHTML = isRecallMode ? '<strong>同意</strong>方領先' : '民進黨領先';
+    swingLegendText.textContent = isRecallMode ? '本次搖擺區' : '高度搖擺區';
+    if (recallWarningTab1) recallWarningTab1.classList.toggle('hidden', !isRecallMode);
+    
+    // 清除其他分頁的警示
+    for (let i = 2; i <= 4; i++) {
+        const container = document.getElementById(`recall-warning-container-${i}`);
+        if (container) container.innerHTML = '';
     }
 
     populateYearFilter();
@@ -348,6 +350,7 @@ function populateYearFilter() {
 
 async function loadAndDisplayYear(year) {
     warning2012.classList.toggle('hidden', year === '2012');
+    injectRecallWarning(2);
 
     if (year === 'none' || !currentElectionCategory) {
         if (geoJsonLayer) map.removeLayer(geoJsonLayer);
@@ -828,9 +831,12 @@ function getVillageColorInfo(village) {
 
 function renderDistrictOverview(districtNames) {
     const container = tabContents[3];
+    let contentHtml;
+
     if (districtNames.length > 1) {
-        container.innerHTML = `
-            <div class="p-4 space-y-4">
+        contentHtml = `
+            <div id="recall-warning-container-3" class="p-4"></div>
+            <div class="p-4 pt-0 space-y-4">
                 <h2 class="text-2xl font-bold text-gray-800">多選區模式</h2>
                 <div class="bg-sky-100 border-l-4 border-sky-500 text-sky-800 p-4 rounded-md flex items-start space-x-3" role="alert">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -843,6 +849,8 @@ function renderDistrictOverview(districtNames) {
                     </div>
                 </div>
             </div>`;
+        container.innerHTML = contentHtml;
+        injectRecallWarning(3);
         return;
     }
     
@@ -916,7 +924,8 @@ function renderDistrictOverview(districtNames) {
             </div>`;
     }
     
-    container.innerHTML = overviewHtml + analysisUIHtml;
+    container.innerHTML = `<div id="recall-warning-container-3"></div>` + overviewHtml + analysisUIHtml;
+    injectRecallWarning(3);
 
     if (districtChart) districtChart.destroy();
     const ctx = document.getElementById('district-chart').getContext('2d');
@@ -939,7 +948,6 @@ function renderDistrictOverview(districtNames) {
         const sortedCandidates = Object.entries(district.candidates).sort((a, b) => b[1].votes - a[1].votes);
         districtChart = new Chart(ctx, { type: 'bar', data: { labels: sortedCandidates.map(c => c[0]), datasets: [{ label: '總得票數', data: sortedCandidates.map(c => c[1].votes), backgroundColor: sortedCandidates.map(c => c[1].party === KMT_PARTY_NAME ? 'rgba(59, 130, 246, 0.7)' : c[1].party === DPP_PARTY_NAME ? 'rgba(22, 163, 74, 0.7)' : 'rgba(128, 128, 128, 0.7)'), borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false }, title: { display: false } } } });
         
-        // 非同步載入並渲染歷史比較表
         setTimeout(async () => {
             const category = currentElectionCategory;
             const historicalData = {};
@@ -985,6 +993,7 @@ async function renderVillageDetails(village) {
         
         mainInfoHtml = `
             <div class="p-4">
+                <div id="recall-warning-container-4"></div>
                 <h3 class="text-xl font-bold text-gray-800">${fullName}</h3>
                 <p class="text-sm text-gray-500 mb-4">所屬選區: ${districtName}</p>
                 <div class="bg-gray-50 border-l-4 border-gray-500 p-3 mb-4 rounded">
@@ -1024,6 +1033,7 @@ async function renderVillageDetails(village) {
         
         mainInfoHtml = `
             <div class="p-4">
+                <div id="recall-warning-container-4"></div>
                 <h3 class="text-xl font-bold text-gray-800">${fullName}</h3>
                 <p class="text-sm text-gray-500 mb-4">所屬選區: ${districtName}</p>
                 <div class="bg-gray-50 border-l-4 border-gray-500 p-3 mb-4 rounded">
@@ -1095,6 +1105,7 @@ async function renderVillageDetails(village) {
         </div>`;
 
     container.innerHTML = mainInfoHtml + villageAnalysisUIHtml + annotationHtml;
+    injectRecallWarning(4);
     
     document.getElementById('save-annotation-btn').addEventListener('click', () => saveAnnotation(geo_key, fullName));
     document.getElementById('delete-annotation-btn').addEventListener('click', () => deleteAnnotation(geo_key));
@@ -1605,6 +1616,20 @@ function renderRecallComparisonTable(analysisData, containerId) {
 }
 
 // --- ------------------------------------ ---
+
+// 【新增】罷免案警示標語注入函式
+function injectRecallWarning(tabIndex) {
+    if (currentElectionCategory !== 'recall') return;
+    
+    const container = document.getElementById(`recall-warning-container-${tabIndex}`);
+    if (container) {
+        container.innerHTML = `
+            <div class="p-2 bg-amber-50 border-l-4 border-amber-500 text-amber-800 rounded-md text-xs" role="alert">
+                <p><strong class="font-semibold">BETA 功能提醒：</strong>本罷免案分析資料僅供參考，請以中選會公告為準。</p>
+            </div>
+        `;
+    }
+}
 
 
 function saveAnnotation(geoKey, name) { const note = document.getElementById('annotation-input').value; if (!note.trim()) { deleteAnnotation(geoKey); return; } const targetLayer = geoJsonLayer.getLayers().find(l => l.feature.properties.VILLCODE === geoKey); const center = targetLayer ? targetLayer.getBounds().getCenter() : map.getCenter(); annotations[geoKey] = { name, note, lat: center.lat, lng: center.lng }; addOrUpdateMarker(geoKey); renderAnnotationList(); showMessageBox(`已儲存對「${name}」的註解！`); }
