@@ -232,6 +232,20 @@
                 padding-bottom: 0.75rem;
             }
         }
+
+        /* --- 【新增】罷免案搖擺區閃爍效果 --- */
+        @keyframes pulse-yellow {
+            0%, 100% {
+                stroke: #FBBF24; /* amber-400 */
+            }
+            50% {
+                stroke: #F59E0B; /* amber-500 */
+            }
+        }
+        .swing-pulse {
+            animation: pulse-yellow 2s infinite;
+        }
+
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -257,12 +271,12 @@
                     <label class="flex items-center mb-1 cursor-pointer">
                         <input type="checkbox" id="kmt-layer-toggle" class="h-4 w-4 rounded text-blue-600 focus:ring-blue-500" checked>
                         <div class="w-4 h-4 rounded-full ml-2 mr-2" style="background-color: #3b82f6;"></div>
-                        <span class="text-xs">國民黨領先</span>
+                        <span id="kmt-legend-text" class="text-xs">國民黨領先</span>
                     </label>
                     <label class="flex items-center mb-1 cursor-pointer">
                         <input type="checkbox" id="dpp-layer-toggle" class="h-4 w-4 rounded text-green-600 focus:ring-green-500" checked>
                         <div class="w-4 h-4 rounded-full ml-2 mr-2" style="background-color: #16a34a;"></div>
-                        <span class="text-xs">民進黨領先</span>
+                        <span id="dpp-legend-text" class="text-xs">民進黨領先</span>
                     </label>
                     <label class="flex items-center mb-1 cursor-pointer">
                         <input type="checkbox" id="other-layer-toggle" class="h-4 w-4 rounded text-gray-600 focus:ring-gray-500" checked>
@@ -277,7 +291,7 @@
                     <label class="flex items-center mt-2 pt-2 border-t border-gray-200 cursor-pointer">
                          <input type="checkbox" id="swing-layer-toggle" class="h-4 w-4 rounded text-yellow-500 focus:ring-yellow-400" checked>
                         <div class="w-4 h-4 ml-2 mr-2 border-2 border-yellow-400 bg-transparent rounded-sm"></div>
-                        <span class="text-xs">高度搖擺區</span>
+                        <span id="swing-legend-text" class="text-xs">高度搖擺區</span>
                     </label>
                 </div>
                 <div id="map-options" class="mt-2 pt-2 border-t border-gray-200">
@@ -337,6 +351,13 @@
                     <div id="tab-content-1" class="tab-content p-5">
                         <h3 class="text-xl leading-6 font-medium text-gray-900 mb-5">1. 請選擇要分析的選舉類型（滑到更下面有說明）</h3>
                         <div class="space-y-4">
+                            <!-- 【新增】罷免案分析按鈕 -->
+                            <button id="btn-recall" data-category="recall" class="election-type-btn border-red-500 hover:bg-red-50">
+                                <div>
+                                    <span class="main-text block text-red-700">罷免案分析</span>
+                                    <span class="sub-text block text-red-600">分析 2025 罷免案催票與歷史趨勢</span>
+                                </div>
+                            </button>
                             <button id="btn-legislator" data-category="legislator" class="election-type-btn">
                                 <div>
                                     <span class="main-text block">區域立委</span>
@@ -363,7 +384,7 @@
                             </button>
                         </div>
                         <div class="mt-8 pt-5 border-t border-gray-200">
-                             <h3 class="text-lg leading-6 font-medium text-gray-900">歡迎使用拉罷地圖工具 v07.22</h3>
+                             <h3 class="text-lg leading-6 font-medium text-gray-900">歡迎使用拉罷地圖工具 v07.27</h3>
                              <div class="mt-2 text-left text-sm text-gray-700 space-y-2">
                                  <p>本地圖工具旨在透過視覺化分析各選區近年選舉資料，以利規劃溝通策略與催票範圍。</p>
                                  <p class="font-semibold">請從上方選擇一種選舉類型開始分析。</p>
@@ -376,21 +397,21 @@
                                      <li>
                                          <span class="font-semibold">催票率</span>：可以想像成是候選人在「<span class="font-semibold">整個村里所有具備投票資格的選民中</span>」獲得了多少支持。
                                          <br>
-                                         <span class="text-xs text-gray-600">計算方式：<code>候選人得票數 ÷ 總選舉人數</code>。這個指標的好處是，不管當天投票率高低，我們都能看出候選人在這個地區的「基本盤」實力。關於催票率的進一步探討，可參考<a href="https://whogovernstw.org/2020/01/17/kohuayap2/" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">此篇文章</a>。</span>
+                                         <span class="text-xs text-gray-600">計算方式：<code>候選人或議題方得票數 ÷ 總選舉人數</code>。這個指標的好處是，不管當天投票率高低，我們都能看出該方在這個地區的「基本盤」實力。</span>
                                      </li>
                                      <li>
                                          <span class="font-semibold">未投票率</span>：代表這個村里「<span class="font-semibold">有多少比例的合格選民，沒有出來投票</span>」。
                                          <br>
                                          <span class="text-xs text-gray-600">計算方式：<code>(總選舉人數 - 總投票數) ÷ 總選舉人數</code>。這個數字可以幫助我們了解此地區還有多少潛在的動員空間。</span>
                                      </li>
-                                     <li><span class="font-semibold">黃色外框</span>：代表該村里在歷次選舉中(包含縣市長選舉參考數據)，政黨傾向轉變超過 3 次，屬於<span class="font-bold">高度搖擺區</span>。</li>
+                                     <li><span class="font-semibold">黃色外框</span>：在一般選舉模式下，代表該村里在歷次選舉中政黨傾向轉變超過 3 次，屬於<span class="font-bold">高度搖擺區</span>。在罷免案分析模式下，則代表該村里在 2024-2025 年間發生態度轉變，屬於<span class="font-bold">本次搖擺區</span>。</li>
                                  </ul>
                                  <p>
                                      地圖顏色代表該村里在該次選舉中的政黨傾向：
                                  </p>
                                  <ul class="list-disc list-inside space-y-2">
-                                     <li><span class="pb-0.5 border-b-2 border-blue-400">標示藍色區域</span>：代表中國國民黨候選人取得 5% 以上的催票率優勢。</li>
-                                     <li><span class="pb-0.5 border-b-2 border-green-500">標示綠色區域</span>：代表民主進步黨候選人取得 5% 以上的催票率優勢。</li>
+                                     <li><span class="pb-0.5 border-b-2 border-blue-400">標示藍色區域</span>：代表中國國民黨候選人 (或罷免案中的<span class="font-semibold">不同意方</span>) 取得 5% 以上的催票率優勢。</li>
+                                     <li><span class="pb-0.5 border-b-2 border-green-500">標示綠色區域</span>：代表民主進步黨候選人 (或罷免案中的<span class="font-semibold">同意方</span>) 取得 5% 以上的催票率優勢。</li>
                                      <li><span class="pb-0.5 border-b-2 border-gray-500">標示黑色區域</span>：代表其他政黨或無黨籍候選人取得 5% 以上的催票率優勢。</li>
                                      <li><span class="pb-0.5 border-b-2 border-red-500">標示紅色區域</span>：代表主要競爭者之間，催票率差距在 5% 以內，屬於激戰區。</li>
                                  </ul>
@@ -494,22 +515,22 @@
                                      <li>
                                          <span class="font-semibold">催票率</span>：可以想像成是候選人在「<span class="font-semibold">整個村里所有具備投票資格的選民中</span>」獲得了多少支持。
                                          <br>
-                                         <span class="text-xs text-gray-600">計算方式：<code>候選人得票數 ÷ 總選舉人數</code>。這個指標的好處是，不管當天投票率高低，我們都能看出候選人在這個地區的「基本盤」實力。關於催票率的進一步探討，可參考<a href="https://whogovernstw.org/2020/01/17/kohuayap2/" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">此篇文章</a>。</span>
+                                         <span class="text-xs text-gray-600">計算方式：<code>候選人或議題方得票數 ÷ 總選舉人數</code>。這個指標的好處是，不管當天投票率高低，我們都能看出該方在這個地區的「基本盤」實力。</span>
                                      </li>
                                      <li>
                                          <span class="font-semibold">未投票率</span>：代表這個村里「<span class="font-semibold">有多少比例的合格選民，沒有出來投票</span>」。
                                          <br>
                                          <span class="text-xs text-gray-600">計算方式：<code>(總選舉人數 - 總投票數) ÷ 總選舉人數</code>。這個數字可以幫助我們了解此地區還有多少潛在的動員空間。</span>
                                      </li>
-                                     <li><span class="font-semibold">黃色外框</span>：代表該村里在歷次選舉中(包含縣市長選舉參考數據)，政黨傾向轉變超過 3 次，屬於<span class="font-bold">高度搖擺區</span>。</li>
+                                     <li><span class="font-semibold">黃色外框</span>：在一般選舉模式下，代表該村里在歷次選舉中政黨傾向轉變超過 3 次，屬於<span class="font-bold">高度搖擺區</span>。在罷免案分析模式下，則代表該村里在 2024-2025 年間發生態度轉變，屬於<span class="font-bold">本次搖擺區</span>。</li>
                                  </ul>
                                  <p>
                                      地圖顏色代表該村里在該次選舉中的政黨傾向：
                                  </p>
                                  <ul class="list-disc list-inside space-y-2">
-                                     <li><span class="pb-0.5 border-b-2 border-blue-400">標示藍色區域</span>：代表中國國民黨候選人取得 5% 以上的催票率優勢。</li>
-                                     <li><span class="pb-0.5 border-b-2 border-green-500">標示綠色區域</span>：代表民主進步黨候選人取得 5% 以上的催票率優勢。</li>
-                                     <li><span class="pb-0.5 border-b-2 border-gray-500">標示黑色區域</span>：代表其他政黨或無黨籍候選人取得領先。</li>
+                                     <li><span class="pb-0.5 border-b-2 border-blue-400">標示藍色區域</span>：代表中國國民黨候選人 (或罷免案中的<span class="font-semibold">不同意方</span>) 取得 5% 以上的催票率優勢。</li>
+                                     <li><span class="pb-0.5 border-b-2 border-green-500">標示綠色區域</span>：代表民主進步黨候選人 (或罷免案中的<span class="font-semibold">同意方</span>) 取得 5% 以上的催票率優勢。</li>
+                                     <li><span class="pb-0.5 border-b-2 border-gray-500">標示黑色區域</span>：代表其他政黨或無黨籍候選人取得 5% 以上的催票率優勢。</li>
                                      <li><span class="pb-0.5 border-b-2 border-red-500">標示紅色區域</span>：代表主要競爭者之間，催票率差距在 5% 以內，屬於激戰區。</li>
                                  </ul>
                                   <p class="mt-2">
