@@ -1,14 +1,15 @@
 /**
  * @file script.js
  * @description 台灣選舉地圖視覺化工具的主要腳本。
- * @version 56.0.0
+ * @version 58.0.0
  * @date 2025-07-27
  * 主要改進：
- * 1.  **[UI/UX]** 在各個相關分頁中，為「罷免案分析」模式新增了醒目的警示標語，提醒使用者此為 BETA 功能。
- * 2.  **[邏輯優化]** 將警示標語的顯示與隱藏邏輯整合，確保其僅在罷免案分析模式下出現。
+ * 1.  **[功能擴充]** 「選區總覽」頁面現在支援多選區分析。當使用者選擇多個選區時，會顯示匯總的「村里態度轉變分析」表格與「選區層級歷史催票率趨勢圖」。
+ * 2.  **[邏輯重構]** 將單選區與多選區的分析邏輯合併，由統一的函式處理，提升了程式碼的重用性與可維護性。
+ * 3.  **[UI優化]** 微調了「村里態度轉變分析」表格的文字說明，使其在各種情況下都更清晰易懂。
  */
 
-console.log('Running script.js version 56.0.0 with recall warning messages.');
+console.log('Running script.js version 58.0.0 with multi-district analysis.');
 
 // --- 全域變數與設定 ---
 
@@ -30,6 +31,7 @@ let recallWarningTab1;
 
 // 圖表實例
 let districtChart = null;
+let districtHistoricalChart = null; 
 let villageVoteChart = null;
 let villageHistoricalChart = null;
 let villagePopulationChart = null; // 人口金字塔圖表實例
@@ -825,152 +827,95 @@ function getVillageColorInfo(village) {
 
     if (leader.party === KMT_PARTY_NAME) return { category: 'kmt', diff: turnoutDiff };
     if (leader.party === DPP_PARTY_NAME) return { category: 'dpp', diff: turnoutDiff };
-    return { category: 'other', diff: turnoutDiff };
+    return { category: 'other', diff: 1 };
 }
 
-
-function renderDistrictOverview(districtNames) {
+// 【重構】此函式現在統一處理單選區與多選區的總覽頁面渲染
+async function renderDistrictOverview(districtNames) {
     const container = tabContents[3];
-    let contentHtml;
+    container.innerHTML = ''; // 清空容器
 
-    if (districtNames.length > 1) {
-        contentHtml = `
-            <div id="recall-warning-container-3" class="p-4"></div>
-            <div class="p-4 pt-0 space-y-4">
-                <h2 class="text-2xl font-bold text-gray-800">多選區模式</h2>
-                <div class="bg-sky-100 border-l-4 border-sky-500 text-sky-800 p-4 rounded-md flex items-start space-x-3" role="alert">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div>
-                        <p class="font-bold">已選擇 ${districtNames.length} 個選區</p>
-                        <p class="text-sm">您現在可以點擊地圖上的任一<span class="font-semibold">村里區塊</span>，來檢視更詳細的投票數據與歷史趨勢。</p>
-                        <p class="text-sm mt-2">或者，您可以在「村里詳情」頁面找到匯出按鈕，將這 ${districtNames.length} 個選區的<span class="font-semibold">所有村里資料</span>匯出為 CSV 或 KML 檔。</p>
-                    </div>
+    // 產生標題和提示訊息
+    const headerHtml = `
+        <div class="p-4 pb-0">
+            <h2 class="text-2xl font-bold text-gray-800">${districtNames.length > 1 ? '多選區總覽' : districtNames[0]}</h2>
+            ${districtNames.length > 1 ? `<p class="text-sm text-gray-500 mt-1">已匯總 ${districtNames.length} 個選區的資料</p>` : ''}
+            <div class="mt-4 bg-sky-100 border-l-4 border-sky-500 text-sky-800 p-4 rounded-md flex items-start space-x-3" role="alert">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                    <p class="font-bold">操作提示</p>
+                    <p class="text-sm">您現在可以點擊地圖上的任一<span class="font-semibold">村里區塊</span>，來檢視該村里的詳細投票數據與歷史趨勢。</p>
                 </div>
-            </div>`;
-        container.innerHTML = contentHtml;
-        injectRecallWarning(3);
-        return;
-    }
-    
-    const districtName = districtNames[0];
-    const district = districtResults[districtName];
-    if (!district) {
-        container.innerHTML = `<div class="p-4"><h2 class="text-xl font-bold text-red-500">錯誤</h2><p class="text-gray-600 mt-2">找不到選區資料：${districtName}</p></div>`;
-        return;
-    }
-    
-    const winnerName = winners[districtName] || 'N/A';
-    const electorate = district.electorate || 0;
-    const totalVotes = district.total_votes || 0;
-    const turnoutRate = electorate > 0 ? (totalVotes / electorate * 100).toFixed(2) : 0;
-    
-    let overviewHtml, analysisUIHtml;
-
-    if (currentElectionCategory === 'recall') {
-        const agreeVotes = district.candidates['Agree'].votes;
-        const disagreeVotes = district.candidates['Disagree'].votes;
-        overviewHtml = `
-            <div class="p-4 space-y-4">
-                <h2 class="text-2xl font-bold text-gray-800">${districtName}</h2>
-                <div class="bg-sky-100 border-l-4 border-sky-500 text-sky-800 p-4 rounded-md flex items-start space-x-3" role="alert">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    <div><p class="font-bold">操作提示</p><p class="text-sm">您現在可以點擊地圖上的任一<span class="font-semibold">村里區塊</span>，來檢視更詳細的投票數據與歷史趨勢。</p></div>
-                </div>
-                <div class="bg-gray-50 p-4 rounded-lg shadow-inner">
-                    <h3 class="font-bold text-gray-700 mb-2">選區罷免案總覽</h3>
-                    <div class="space-y-2 text-sm">
-                        <div class="flex justify-between items-center"><span class="text-gray-600">領先方</span><span class="font-semibold text-lg ${winnerName === '同意' ? 'text-green-600' : 'text-blue-600'}">${winnerName}</span></div>
-                        <div class="flex justify-between items-center"><span class="text-gray-600">選舉人數</span><span class="font-semibold">${electorate.toLocaleString()} 人</span></div>
-                        <div class="flex justify-between items-center"><span class="text-gray-600">投票率</span><span class="font-semibold">${turnoutRate}%</span></div>
-                    </div>
-                </div>
-                <div><h3 class="font-bold text-gray-700 mb-2">罷免案得票分佈</h3><div class="h-48"><canvas id="district-chart"></canvas></div></div>
-            </div>`;
-        analysisUIHtml = `<div class="p-4 mt-2 pt-6 border-t border-gray-200"><h3 class="text-xl font-bold text-gray-800 mb-3">村里級歷史比較</h3><p class="text-sm text-gray-600 mb-4">請點擊地圖上的村里，以檢視該村里在罷免案與歷屆選舉的催票率趨勢比較。</p></div>`;
-    } else {
-        const sortedCandidates = Object.entries(district.candidates).sort((a, b) => b[1].votes - a[1].votes);
-        let winnerDisplayText;
-        if (currentElectionCategory === 'party') {
-            winnerDisplayText = winnerName;
-        } else {
-            const winnerParty = district.candidates[winnerName]?.party || 'N/A';
-            winnerDisplayText = `${winnerName} (${winnerParty})`;
-        }
-        overviewHtml = `
-            <div class="p-4 space-y-4">
-                <h2 class="text-2xl font-bold text-gray-800">${districtName}</h2>
-                <div class="bg-sky-100 border-l-4 border-sky-500 text-sky-800 p-4 rounded-md flex items-start space-x-3" role="alert">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    <div><p class="font-bold">操作提示</p><p class="text-sm">您現在可以點擊地圖上的任一<span class="font-semibold">村里區塊</span>，來檢視更詳細的投票數據與歷史趨勢。</p></div>
-                </div>
-                <div class="bg-gray-50 p-4 rounded-lg shadow-inner">
-                    <h3 class="font-bold text-gray-700 mb-2">選區數據總覽 (${yearSelector.selectedOptions[0].text})</h3>
-                    <div class="space-y-2 text-sm">
-                        <div class="flex justify-between items-center"><span class="text-gray-600">${(currentElectionCategory === 'party') ? '最高票政黨' : '當選人'}</span><span class="font-semibold text-lg text-indigo-600">${winnerDisplayText}</span></div>
-                        <div class="flex justify-between items-center"><span class="text-gray-600">選舉人數</span><span class="font-semibold">${electorate.toLocaleString()} 人</span></div>
-                        <div class="flex justify-between items-center"><span class="text-gray-600">投票率</span><span class="font-semibold">${turnoutRate}%</span></div>
-                    </div>
-                </div>
-                <div><h3 class="font-bold text-gray-700 mb-2">得票分佈圖</h3><div class="h-80"><canvas id="district-chart"></canvas></div></div>
-            </div>`;
-        const analysisContainerId = 'district-vote-flow-container';
-        analysisUIHtml = `
-            <div class="p-4 mt-2 pt-6 border-t border-gray-200">
-                <h3 class="text-xl font-bold text-gray-800 mb-3">選區歷年催票率變化</h3>
-                <p class="text-sm text-gray-600 mb-4">比較該選舉類型在歷次選舉的催票率變化，觀察主要政黨基本盤的消長。</p>
-                <div id="${analysisContainerId}" class="mt-4"><p class="text-center text-gray-500 animate-pulse">正在載入並分析歷史資料...</p></div>
-            </div>`;
-    }
-    
-    container.innerHTML = `<div id="recall-warning-container-3"></div>` + overviewHtml + analysisUIHtml;
+            </div>
+        </div>
+    `;
+    container.innerHTML = `<div id="recall-warning-container-3"></div>` + headerHtml;
     injectRecallWarning(3);
 
-    if (districtChart) districtChart.destroy();
-    const ctx = document.getElementById('district-chart').getContext('2d');
-    
-    if (currentElectionCategory === 'recall') {
-        districtChart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: ['同意罷免', '不同意罷免'],
-                datasets: [{
-                    label: '總得票數',
-                    data: [district.candidates['Agree'].votes, district.candidates['Disagree'].votes],
-                    backgroundColor: ['rgba(22, 163, 74, 0.7)', 'rgba(59, 130, 246, 0.7)'],
-                    borderWidth: 1
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
-        });
-    } else {
-        const sortedCandidates = Object.entries(district.candidates).sort((a, b) => b[1].votes - a[1].votes);
-        districtChart = new Chart(ctx, { type: 'bar', data: { labels: sortedCandidates.map(c => c[0]), datasets: [{ label: '總得票數', data: sortedCandidates.map(c => c[1].votes), backgroundColor: sortedCandidates.map(c => c[1].party === KMT_PARTY_NAME ? 'rgba(59, 130, 246, 0.7)' : c[1].party === DPP_PARTY_NAME ? 'rgba(22, 163, 74, 0.7)' : 'rgba(128, 128, 128, 0.7)'), borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false }, title: { display: false } } } });
+    // 產生總體數據（僅在多選區時顯示）
+    if (districtNames.length > 1) {
+        const summaryContainer = document.createElement('div');
+        summaryContainer.className = 'p-4';
+        let totalElectorate = 0;
+        let totalVotes = 0;
         
-        setTimeout(async () => {
-            const category = currentElectionCategory;
-            const historicalData = {};
-            const categoryYears = dataSources[category].years;
-
-            for (const year in categoryYears) {
-                const source = categoryYears[year];
-                const voteDataRows = await getVoteData(`${category}_${year}`, source.path);
-                const districtData = processElectionDataForFlow(voteDataRows, districtName);
-                if (districtData.totalElectorate > 0) {
-                    historicalData[year] = {
-                        KMT: districtData.kmtVotes,
-                        DPP: districtData.dppVotes,
-                        Other: districtData.otherVotes,
-                        electorate: districtData.totalElectorate,
-                        total_votes: districtData.totalVotesCast,
-                    };
+        if (currentElectionCategory === 'recall') {
+            let agreeVotes = 0;
+            let disagreeVotes = 0;
+            districtNames.forEach(dName => {
+                const d = districtResults[dName];
+                if (d) {
+                    totalElectorate += d.electorate;
+                    totalVotes += d.total_votes;
+                    agreeVotes += d.candidates['Agree'].votes;
+                    disagreeVotes += d.candidates['Disagree'].votes;
                 }
-            }
-            const analysisResult = analyzeMultiYearVoteFlow(historicalData);
-            renderMultiYearVoteFlowTable(analysisResult, 'district-vote-flow-container');
-        }, 100);
+            });
+            const turnoutRate = totalElectorate > 0 ? (totalVotes / totalElectorate * 100).toFixed(2) : 0;
+            const winner = agreeVotes > disagreeVotes ? '同意' : '不同意';
+
+            summaryContainer.innerHTML = `
+                <div class="bg-gray-50 p-4 rounded-lg shadow-inner">
+                    <h3 class="font-bold text-gray-700 mb-2">所選區域罷免案總覽</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between items-center"><span class="text-gray-600">總選舉人數</span><span class="font-semibold">${totalElectorate.toLocaleString()} 人</span></div>
+                        <div class="flex justify-between items-center"><span class="text-gray-600">總投票率</span><span class="font-semibold">${turnoutRate}%</span></div>
+                        <div class="flex justify-between items-center"><span class="text-gray-600">總體領先方</span><span class="font-semibold text-lg ${winner === '同意' ? 'text-green-600' : 'text-blue-600'}">${winner}</span></div>
+                    </div>
+                </div>
+            `;
+        }
+        container.appendChild(summaryContainer);
     }
+
+    // 產生進階分析區塊
+    const analysisContainer = document.createElement('div');
+    analysisContainer.id = 'district-level-analysis-container';
+    analysisContainer.className = 'p-4 pt-4 border-t-2 border-dashed border-gray-300 space-y-8';
+    container.appendChild(analysisContainer);
+    
+    analysisContainer.innerHTML = '<p class="text-center text-gray-500 animate-pulse">正在載入選區層級進階分析...</p>';
+    
+    // 非同步載入並渲染分析內容
+    setTimeout(async () => {
+        try {
+            if (currentElectionCategory === 'recall') {
+                const flipHtml = await getAggregatedFlipSummaryHtml(districtNames);
+                const historyHtml = getAggregatedHistoricalRecallHtml(districtNames);
+                analysisContainer.innerHTML = flipHtml + historyHtml;
+                await renderAggregatedHistoricalRecallChart(districtNames);
+            } else {
+                const historyHtml = getAggregatedHistoricalGeneralHtml(districtNames);
+                analysisContainer.innerHTML = historyHtml;
+                await renderAggregatedHistoricalGeneralChart(districtNames);
+            }
+        } catch (error) {
+            console.error("渲染選區進階分析時發生錯誤:", error);
+            analysisContainer.innerHTML = '<p class="text-red-500 text-center p-4">載入進階分析時發生錯誤。</p>';
+        }
+    }, 100);
 }
 
 
@@ -1616,6 +1561,265 @@ function renderRecallComparisonTable(analysisData, containerId) {
 }
 
 // --- ------------------------------------ ---
+
+// --- 【重構】選區層級（含多選區）分析函式 ---
+
+async function getAggregatedFlipSummaryHtml(districtNames) {
+    const incumbentParty = KMT_PARTY_NAME; // 假設本次罷免對象皆為國民黨
+    const challengerParty = DPP_PARTY_NAME;
+
+    const legislator2024Data = await getVoteData('legislator_2024', dataSources.legislator.years['2024'].path);
+    const villages2024Winner = {};
+    legislator2024Data.forEach(row => {
+        if (!districtNames.includes(row.electoral_district_name)) return;
+        const geo_key = row.geo_key;
+        if (!geo_key) return;
+        if (!villages2024Winner[geo_key]) {
+            villages2024Winner[geo_key] = { KMT: 0, DPP: 0 };
+        }
+        if (row.party_name === KMT_PARTY_NAME) villages2024Winner[geo_key].KMT += (row.votes || 0);
+        if (row.party_name === DPP_PARTY_NAME) villages2024Winner[geo_key].DPP += (row.votes || 0);
+    });
+
+    let kmtToChallenger = 0, challengerToKmt = 0, maintained = 0, noDataCount = 0;
+    const villagesInDistricts = Object.values(villageResults).filter(v => districtNames.includes(v.districtName));
+    
+    villagesInDistricts.forEach(village => {
+        const recallWinnerSide = village.candidates[0].name;
+        const recallWinnerParty = (recallWinnerSide === 'Agree') ? challengerParty : incumbentParty;
+
+        const votes2024 = villages2024Winner[village.geo_key];
+        if (!votes2024 || votes2024.KMT === votes2024.DPP) {
+            noDataCount++;
+            return;
+        }
+        const winner2024 = (votes2024.KMT > votes2024.DPP) ? KMT_PARTY_NAME : DPP_PARTY_NAME;
+
+        if (winner2024 === incumbentParty && recallWinnerParty === challengerParty) {
+            kmtToChallenger++;
+        } else if (winner2024 === challengerParty && recallWinnerParty === incumbentParty) {
+            challengerToKmt++;
+        } else {
+            maintained++;
+        }
+    });
+
+    const totalCompared = kmtToChallenger + challengerToKmt + maintained;
+    const title = districtNames.length > 1 ? '多選區村里態度轉變分析' : '2024-2025 村里態度轉變分析';
+    const descriptionText = `本表比較在 2024 年立委選舉與 2025 年罷免案中，所選 ${districtNames.length} 個選區內，各村里多數方的轉變情況。總計 ${villagesInDistricts.length} 個村里 (其中 ${noDataCount} 個村里因資料不足未計入比較)。`;
+
+    return `
+        <div>
+            <h3 class="text-xl font-bold text-gray-800 mb-3">${title}</h3>
+            <p class="text-sm text-gray-600 mb-4">${descriptionText}</p>
+            <div class="bg-white border border-gray-200 rounded-lg p-4">
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="border-b">
+                            <th class="pb-2 font-semibold">轉變類型 (2024 立委 → 2025 罷免)</th>
+                            <th class="pb-2 font-semibold text-right">村里數量</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="border-b">
+                            <td class="py-3">
+                                <span class="font-medium">從「2024國民黨」優勢轉為「支持罷免」優勢</span>
+                            </td>
+                            <td class="py-3 text-right font-bold text-2xl">
+                                <span style="border-bottom: 4px solid #16a34a; padding-bottom: 2px;">${kmtToChallenger}</span>
+                            </td>
+                        </tr>
+                        <tr class="border-b">
+                            <td class="py-3">
+                                <span class="font-medium">從「2024落選頭」優勢轉為「反對罷免」優勢</span>
+                            </td>
+                            <td class="py-3 text-right font-bold text-2xl">
+                                 <span style="border-bottom: 4px solid #3b82f6; padding-bottom: 2px;">${challengerToKmt}</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="pt-3 font-medium">維持相同方優勢</td>
+                            <td class="pt-3 text-right font-bold text-2xl">${maintained}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function getAggregatedHistoricalRecallHtml(districtNames) {
+    const tableContainerId = `district-recall-table-aggregated`;
+    const title = districtNames.length > 1 ? '多選區層級' : '選區層級';
+    return `
+        <div>
+            <h3 class="text-xl font-bold text-gray-800 mb-3">${title}：罷免案 vs 歷屆選舉催票率趨勢</h3>
+            <p class="text-sm text-gray-600 mb-4">比較此<span class="font-bold">區域整體</span>在 2025 罷免案中「同意/不同意」方的催票實力，與歷屆選舉中「挑戰者/現任者」政黨的催票率消長。</p>
+            <div class="h-72 w-full mt-4 bg-gray-50 rounded-lg p-2"><canvas id="district-historical-recall-chart"></canvas></div>
+            <div id="${tableContainerId}" class="mt-4"></div>
+        </div>
+    `;
+}
+
+async function renderAggregatedHistoricalRecallChart(districtNames) {
+    const incumbentParty = KMT_PARTY_NAME;
+    const challengerParty = DPP_PARTY_NAME;
+
+    const aggregatedHistoricalData = {};
+    const villagesInDistricts = Object.values(villageResults).filter(v => districtNames.includes(v.districtName));
+
+    villagesInDistricts.forEach(village => {
+        const villageHistory = allVillageHistoricalPartyPercentages[village.geo_key];
+        if (!villageHistory) return;
+        for (const category in villageHistory) {
+            for (const year in villageHistory[category]) {
+                if (!aggregatedHistoricalData[year]) {
+                    aggregatedHistoricalData[year] = { KMT: 0, DPP: 0, Other: 0, electorate: 0, total_votes: 0 };
+                }
+                const vData = villageHistory[category][year];
+                aggregatedHistoricalData[year].KMT += vData.KMT || 0;
+                aggregatedHistoricalData[year].DPP += vData.DPP || 0;
+                aggregatedHistoricalData[year].Other += vData.Other || 0;
+                aggregatedHistoricalData[year].electorate += vData.electorate || 0;
+                aggregatedHistoricalData[year].total_votes += vData.total_votes || 0;
+            }
+        }
+    });
+    
+    let analysisData = {};
+    const relevantYears = ['2014', '2016', '2018', '2020', '2022', '2024'];
+    relevantYears.forEach(year => {
+        const yearData = aggregatedHistoricalData[year];
+        if (yearData && yearData.electorate > 0) {
+            analysisData[year] = {
+                incumbentRate: ((incumbentParty === KMT_PARTY_NAME ? yearData.KMT : yearData.DPP) || 0) / yearData.electorate,
+                challengerRate: ((challengerParty === KMT_PARTY_NAME ? yearData.KMT : yearData.DPP) || 0) / yearData.electorate,
+                otherRate: (yearData.Other || 0) / yearData.electorate,
+                nonVoterRate: (yearData.electorate - yearData.total_votes) / yearData.electorate
+            };
+        }
+    });
+
+    const aggregated2025 = districtNames.reduce((acc, dName) => {
+        const dData = districtResults[dName];
+        if (dData) {
+            acc.agree += dData.candidates['Agree'].votes;
+            acc.disagree += dData.candidates['Disagree'].votes;
+            acc.electorate += dData.electorate;
+            acc.total_votes += dData.total_votes;
+        }
+        return acc;
+    }, { agree: 0, disagree: 0, electorate: 0, total_votes: 0 });
+
+    if (aggregated2025.electorate > 0) {
+        const agreeRate = aggregated2025.agree / aggregated2025.electorate;
+        const disagreeRate = aggregated2025.disagree / aggregated2025.electorate;
+        analysisData['2025'] = {
+            incumbentRate: disagreeRate,
+            challengerRate: agreeRate,
+            otherRate: 0,
+            nonVoterRate: (aggregated2025.electorate - aggregated2025.total_votes) / aggregated2025.electorate
+        };
+    }
+    
+    const sortedYears = Object.keys(analysisData).sort();
+    const chartLabels = sortedYears;
+    const chartDatasets = [
+        { label: `不同意方 / 現任方`, data: [], borderColor: '#3b82f6', fill: false, tension: 0.1 },
+        { label: `同意方 / 挑戰方`, data: [], borderColor: '#16a34a', fill: false, tension: 0.1 },
+        { label: '其他', data: [], borderColor: 'rgba(0,0,0,0.4)', fill: false, tension: 0.1 },
+        { label: '未投票', data: [], borderColor: '#f97316', fill: false, tension: 0.1, borderDash: [5, 5] }
+    ];
+    
+    sortedYears.forEach(year => {
+        const d = analysisData[year];
+        chartDatasets[0].data.push(d.incumbentRate * 100);
+        chartDatasets[1].data.push(d.challengerRate * 100);
+        chartDatasets[2].data.push(d.otherRate * 100);
+        chartDatasets[3].data.push(d.nonVoterRate * 100);
+    });
+
+    const tableContainerId = `district-recall-table-aggregated`;
+    renderRecallComparisonTable(analysisData, tableContainerId);
+
+    const ctx = document.getElementById('district-historical-recall-chart')?.getContext('2d');
+    if (!ctx) return;
+    if (districtHistoricalChart) districtHistoricalChart.destroy();
+    districtHistoricalChart = new Chart(ctx, { type: 'line', data: { labels: chartLabels, datasets: chartDatasets }, options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(2) + '%' : 'N/A'}` } } }, scales: { y: { title: { display: true, text: '催票率 (%)' }, ticks: { callback: v => v + '%' } } } } });
+}
+
+function getAggregatedHistoricalGeneralHtml(districtNames) {
+    const tableContainerId = `district-general-table-aggregated`;
+    const title = districtNames.length > 1 ? '多選區層級' : '選區層級';
+    return `
+        <div>
+            <h3 class="text-xl font-bold text-gray-800 mb-3">${title}：歷年催票率趨勢 (同類選舉)</h3>
+            <p class="text-sm text-gray-600 mb-4">比較此<span class="font-bold">區域整體</span>在同類型選舉的歷年催票率變化，觀察主要政黨在此地的基本盤消長。</p>
+            <div class="h-72 w-full mt-4 bg-gray-50 rounded-lg p-2"><canvas id="district-historical-general-chart"></canvas></div>
+            <div id="${tableContainerId}" class="mt-4"></div>
+        </div>
+    `;
+}
+
+async function renderAggregatedHistoricalGeneralChart(districtNames) {
+    const category = currentElectionCategory;
+    const aggregatedHistoricalData = {};
+    const categoryYears = Object.keys(dataSources[category].years);
+
+    for (const year of categoryYears) {
+        const source = dataSources[category].years[year];
+        const voteDataRows = await getVoteData(`${category}_${year}`, source.path);
+        
+        const yearData = { kmtVotes: 0, dppVotes: 0, otherVotes: 0, totalElectorate: 0, totalVotesCast: 0 };
+        const processedVillages = new Set();
+
+        voteDataRows.forEach(row => {
+            const districtIdentifier = dataSources[category].districtIdentifier;
+            if (!districtNames.includes(row[districtIdentifier])) return;
+            
+            const geo_key = row.geo_key || row.VILLCODE;
+            
+            if (row.party_name === KMT_PARTY_NAME) yearData.kmtVotes += row.votes || 0;
+            else if (row.party_name === DPP_PARTY_NAME) yearData.dppVotes += row.votes || 0;
+            else yearData.otherVotes += row.votes || 0;
+
+            if (geo_key && !processedVillages.has(geo_key)) {
+                yearData.totalElectorate += row.electorate || 0;
+                yearData.totalVotesCast += row.total_votes || 0;
+                processedVillages.add(geo_key);
+            }
+        });
+        
+        if (yearData.totalElectorate > 0) {
+            aggregatedHistoricalData[year] = {
+                KMT: yearData.kmtVotes,
+                DPP: yearData.dppVotes,
+                Other: yearData.otherVotes,
+                electorate: yearData.totalElectorate,
+                total_votes: yearData.totalVotesCast,
+            };
+        }
+    }
+    
+    const analysisResult = analyzeMultiYearVoteFlow(aggregatedHistoricalData);
+    const tableContainerId = `district-general-table-aggregated`;
+    renderMultiYearVoteFlowTable(analysisResult, tableContainerId);
+    
+    const ctx = document.getElementById('district-historical-general-chart')?.getContext('2d');
+    if (!ctx || !analysisResult) return;
+    
+    const chartLabels = analysisResult.map(r => r.year);
+    const chartDatasets = [
+        { label: '中國國民黨', data: analysisResult.map(r => r.rates.kmt * 100), borderColor: '#3b82f6', fill: false, tension: 0.1 },
+        { label: '民主進步黨', data: analysisResult.map(r => r.rates.dpp * 100), borderColor: '#16a34a', fill: false, tension: 0.1 },
+        { label: '其他政黨', data: analysisResult.map(r => r.rates.other * 100), borderColor: 'rgba(0,0,0,0.4)', fill: false, tension: 0.1 },
+        { label: '未投票率', data: analysisResult.map(r => r.rates.nonVoter * 100), borderColor: '#f97316', fill: false, tension: 0.1, borderDash: [5, 5] }
+    ];
+
+    if (districtHistoricalChart) districtHistoricalChart.destroy();
+    districtHistoricalChart = new Chart(ctx, { type: 'line', data: { labels: chartLabels, datasets: chartDatasets }, options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(2) + '%' : 'N/A'}` } } }, scales: { y: { title: { display: true, text: '催票率 (%)' }, ticks: { callback: v => v + '%' } } } } });
+}
+
 
 // 【新增】罷免案警示標語注入函式
 function injectRecallWarning(tabIndex) {
